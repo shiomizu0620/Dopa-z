@@ -1,5 +1,7 @@
 # dopaz
 
+[![CI](https://github.com/shiomizu0620/Dopa-z/actions/workflows/ci.yml/badge.svg)](https://github.com/shiomizu0620/Dopa-z/actions/workflows/ci.yml)
+
 topaz.dev のプロジェクトを YouTube Shorts 風の縦スワイプで発見できる Flutter アプリ。
 [topaz.dev の公開API](#api連携) から実データを取得します。
 
@@ -106,6 +108,34 @@ fvm flutter run -d chrome
 ```
 
 ※ 配布対象はiOS / Androidのみで、webは開発時のプレビュー用です。
+
+## リリース (GitHub Actions)
+
+- **[ci.yml](.github/workflows/ci.yml)** — main へのpushとPRのたびに、
+  フォーマット確認・`flutter analyze`・テストを実行します
+- **[release.yml](.github/workflows/release.yml)** — `v` で始まるタグを打つと、
+  リリースAPKをビルドして GitHub Releases に添付します
+
+配布用のAPKを出す手順:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+タグを打たずにAPKだけ欲しい場合は、GitHubのActionsタブから
+「Release APK」を手動実行すると、成果物としてダウンロードできます。
+
+いずれのワークフローもFlutterのバージョンを `3.35.1` に固定しています。
+`.fvmrc` を更新したらワークフロー側も揃えてください。
+
+### 署名について
+
+`android/app/build.gradle.kts` の署名設定がテンプレートのままなので、
+リリースビルドは **デバッグ鍵で署名** されます。デバッグ鍵はビルドするマシンごとに
+異なるため、CIが出したAPKと手元でビルドしたAPKは上書きインストールできません
+(先にアンインストールが必要)。ストアに出す場合は keystore を用意して
+`signingConfigs` を差し替える必要があります。
 
 ## プロジェクト構成
 
