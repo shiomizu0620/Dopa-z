@@ -7,6 +7,8 @@ class Project {
     required this.author,
     required this.techs,
     required this.topazUrl,
+    this.likes = 0,
+    this.comments = 0,
   });
 
   final String id;
@@ -15,6 +17,8 @@ class Project {
   final String author;
   final List<String> techs;
   final String topazUrl;
+  final int likes;
+  final int comments;
 
   factory Project.fromJson(Map<String, dynamic> json) {
     return Project(
@@ -24,6 +28,8 @@ class Project {
       author: json['author'] as String,
       techs: (json['techs'] as List<dynamic>).cast<String>(),
       topazUrl: json['topazUrl'] as String,
+      likes: json['likes'] as int? ?? 0,
+      comments: json['comments'] as int? ?? 0,
     );
   }
 
@@ -35,6 +41,8 @@ class Project {
       'author': author,
       'techs': techs,
       'topazUrl': topazUrl,
+      'likes': likes,
+      'comments': comments,
     };
   }
 }
