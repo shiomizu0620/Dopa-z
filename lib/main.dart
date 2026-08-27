@@ -5,17 +5,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'pages/feed_page.dart';
+import 'theme.dart';
 
 /// マウス・トラックパッドのドラッグでもスワイプできるようにする
 /// (Web/デスクトップでのプレビュー用。デフォルトはタッチのみ)。
 class AppScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.stylus,
-        PointerDeviceKind.trackpad,
-      };
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.stylus,
+    PointerDeviceKind.trackpad,
+  };
 }
 
 void main() {
@@ -41,9 +42,10 @@ class DopazApp extends StatelessWidget {
       builder: DevicePreview.appBuilder,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: Brightness.dark,
+          seedColor: TopazColors.cyan,
+          brightness: Brightness.light,
         ),
+        scaffoldBackgroundColor: TopazColors.surface,
         useMaterial3: true,
       ),
       home: const FeedPage(),
