@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- topaz.dev のAPIとサムネイル画像の取得に使う (release ビルドでも必要) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="dopaz"
         android:name="${applicationName}"

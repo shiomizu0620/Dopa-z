@@ -1,21 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../models/project.dart';
 import '../theme.dart';
 
 /// フィード1ページ分。サムネイルの下に作者情報、右下にアクションを置く。
 ///
-/// いいね・フォローといった書き込み操作は topaz.dev 側の機能なので、
+/// いいねのような書き込み操作は topaz.dev 側の機能なので、
 /// このアプリでは件数を表示するだけで実行はできない。
 class ProjectCard extends StatelessWidget {
   const ProjectCard({
     super.key,
     required this.project,
-    required this.onOpenTopaz,
+    required this.onOpenUrl,
   });
 
   final Project project;
-  final VoidCallback onOpenTopaz;
+
+  /// 外部ブラウザで開くURLを受け取る。
+  final ValueChanged<String> onOpenUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -25,17 +28,17 @@ class ProjectCard extends StatelessWidget {
         Expanded(
           child: Stack(
             children: [
-              Positioned.fill(child: _Thumbnail(url: project.thumbnail)),
+              Positioned.fill(child: _Thumbnail(url: project.thumbnailUrl)),
               // Shorts と同じくサムネイル右下に縦並びで置く
               Positioned(
                 right: 6,
                 bottom: 8,
-                child: _ActionRail(project: project, onOpenTopaz: onOpenTopaz),
+                child: _ActionRail(project: project, onOpenUrl: onOpenUrl),
               ),
             ],
           ),
         ),
-        _ProjectInfo(project: project, onOpenTopaz: onOpenTopaz),
+        _ProjectInfo(project: project, onOpenUrl: onOpenUrl),
       ],
     );
   }
@@ -68,10 +71,10 @@ class _Thumbnail extends StatelessWidget {
 
 /// サムネイル下の作者・タイトル・技術タグ。
 class _ProjectInfo extends StatelessWidget {
-  const _ProjectInfo({required this.project, required this.onOpenTopaz});
+  const _ProjectInfo({required this.project, required this.onOpenUrl});
 
   final Project project;
-  final VoidCallback onOpenTopaz;
+  final ValueChanged<String> onOpenUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -83,23 +86,39 @@ class _ProjectInfo extends StatelessWidget {
         children: [
           Row(
             children: [
-              _AuthorAvatar(author: project.author),
+              _AuthorAvatar(
+                name: project.authorName,
+                avatarUrl: project.avatarUrl,
+              ),
               const SizedBox(width: 8),
               Flexible(
-                child: Text(
-                  '@${project.author}',
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: TopazColors.onSurface,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      project.authorName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: TopazColors.onSurface,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      '@${project.authorUserName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: TopazColors.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 10),
-              _FollowButton(
-                onTap: () => showTopazOnly(context, 'フォロー', onOpenTopaz),
-              ),
+              _SocialLinks(project: project, onOpenUrl: onOpenUrl),
             ],
           ),
           const SizedBox(height: 10),
@@ -131,53 +150,108 @@ class _ProjectInfo extends StatelessWidget {
   }
 }
 
-class _AuthorAvatar extends StatelessWidget {
-  const _AuthorAvatar({required this.author});
+/// 作者名の横に出すGitHub / X へのリンク。
+/// APIが返すアカウント名は空のことがあるので、設定されているものだけ出す。
+class _SocialLinks extends StatelessWidget {
+  const _SocialLinks({required this.project, required this.onOpenUrl});
 
-  final String author;
+  final Project project;
+  final ValueChanged<String> onOpenUrl;
 
   @override
   Widget build(BuildContext context) {
-    // 作者名から決まる色を割り当てる(アバター画像は未提供のため)
-    final hue = (author.hashCode.abs() % 360).toDouble();
-    final color = HSLColor.fromAHSL(1, hue, 0.45, 0.55).toColor();
-    return Container(
-      width: 32,
-      height: 32,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      child: Text(
-        author.characters.first.toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
+    final githubUrl = project.githubUrl;
+    final xUrl = project.xUrl;
+    if (githubUrl == null && xUrl == null) return const SizedBox.shrink();
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (githubUrl != null)
+          _SocialIcon(
+            icon: FontAwesomeIcons.github,
+            tooltip: '@${project.githubId} のGitHub',
+            onTap: () => onOpenUrl(githubUrl),
+          ),
+        if (xUrl != null)
+          _SocialIcon(
+            icon: FontAwesomeIcons.xTwitter,
+            tooltip: '@${project.twitterId} のX',
+            onTap: () => onOpenUrl(xUrl),
+          ),
+      ],
+    );
+  }
+}
+
+class _SocialIcon extends StatelessWidget {
+  const _SocialIcon({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final FaIconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: FaIcon(
+            icon,
+            size: 18,
+            color: TopazColors.onSurface.withValues(alpha: 0.7),
+          ),
         ),
       ),
     );
   }
 }
 
-class _FollowButton extends StatelessWidget {
-  const _FollowButton({required this.onTap});
+class _AuthorAvatar extends StatelessWidget {
+  const _AuthorAvatar({required this.name, required this.avatarUrl});
 
-  final VoidCallback onTap;
+  final String name;
+  final String avatarUrl;
+
+  static const _size = 36.0;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: TopazColors.cyan,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: const Text(
-          'フォロー',
-          style: TextStyle(
+    return ClipOval(
+      child: SizedBox(
+        width: _size,
+        height: _size,
+        child: avatarUrl.isEmpty
+            ? _fallback()
+            : Image.network(
+                avatarUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => _fallback(),
+              ),
+      ),
+    );
+  }
+
+  /// アバターを読み込めないときは名前の頭文字を出す。
+  Widget _fallback() {
+    final hue = (name.hashCode.abs() % 360).toDouble();
+    final color = HSLColor.fromAHSL(1, hue, 0.45, 0.55).toColor();
+    return ColoredBox(
+      color: color,
+      child: Center(
+        child: Text(
+          name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+          style: const TextStyle(
             color: Colors.white,
-            fontSize: 13,
+            fontSize: 16,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -188,27 +262,24 @@ class _FollowButton extends StatelessWidget {
 
 /// サムネイル右下に縦に並ぶアクション。
 class _ActionRail extends StatelessWidget {
-  const _ActionRail({required this.project, required this.onOpenTopaz});
+  const _ActionRail({required this.project, required this.onOpenUrl});
 
   final Project project;
-  final VoidCallback onOpenTopaz;
+  final ValueChanged<String> onOpenUrl;
 
   @override
   Widget build(BuildContext context) {
+    void openTopaz() => onOpenUrl(project.topazUrl);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         // いいね数は topaz.dev から取得した値の表示のみ。
         // このアプリからいいねを付けることはできない。
+        // (コメント数は API が返さないので出していない)
         _RailButton(
           icon: Icons.favorite_border,
-          label: _formatCount(project.likes),
-          onTap: () => showTopazOnly(context, 'いいね', onOpenTopaz),
-        ),
-        _RailButton(
-          icon: Icons.comment,
-          label: _formatCount(project.comments),
-          onTap: () => showTopazOnly(context, 'コメント', onOpenTopaz),
+          label: _formatCount(project.likeCount),
+          onTap: () => showTopazOnly(context, 'いいね', openTopaz),
         ),
         _RailButton(
           icon: Icons.reply,
@@ -216,11 +287,7 @@ class _ActionRail extends StatelessWidget {
           label: '共有',
           onTap: () => _showComingSoon(context, '共有'),
         ),
-        _RailButton(
-          icon: Icons.open_in_new,
-          label: 'topaz',
-          onTap: onOpenTopaz,
-        ),
+        _RailButton(icon: Icons.open_in_new, label: 'topaz', onTap: openTopaz),
       ],
     );
   }

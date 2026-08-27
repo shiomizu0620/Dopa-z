@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'pages/feed_page.dart';
+import 'repositories/feed_repository.dart';
+import 'repositories/mock_feed_repository.dart';
 import 'theme.dart';
 
 /// マウス・トラックパッドのドラッグでもスワイプできるようにする
@@ -48,7 +50,11 @@ class DopazApp extends StatelessWidget {
         scaffoldBackgroundColor: TopazColors.surface,
         useMaterial3: true,
       ),
-      home: const FeedPage(),
+      // topaz.dev の API は CORS ヘッダーを返さないため、ブラウザからは直接呼べない。
+      // Webでの開発プレビューではサンプルデータを表示する。
+      home: kIsWeb
+          ? FeedPage(repository: MockFeedRepository(), usingMockData: true)
+          : FeedPage(repository: FeedRepository()),
     );
   }
 }

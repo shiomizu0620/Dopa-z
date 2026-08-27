@@ -10,6 +10,7 @@ class FeedTopBar extends StatelessWidget {
     required this.techs,
     required this.selectedTech,
     required this.onTechSelected,
+    this.showMockBadge = false,
   });
 
   /// フィルターに出す技術タグ(先頭の「すべて」を除く)。
@@ -19,6 +20,9 @@ class FeedTopBar extends StatelessWidget {
   final String? selectedTech;
 
   final ValueChanged<String?> onTechSelected;
+
+  /// 実APIではなくサンプルデータを表示していることを示すバッジを出すか。
+  final bool showMockBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -31,13 +35,14 @@ class FeedTopBar extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 8, 0),
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
               child: Row(
                 children: [
                   const DopazLogo(),
-                  const Spacer(),
-                  const _HeaderIcon(Icons.search),
-                  const _HeaderIcon(Icons.more_vert),
+                  if (showMockBadge) ...[
+                    const SizedBox(width: 8),
+                    const _MockBadge(),
+                  ],
                 ],
               ),
             ),
@@ -75,16 +80,27 @@ class FeedTopBar extends StatelessWidget {
   }
 }
 
-class _HeaderIcon extends StatelessWidget {
-  const _HeaderIcon(this.icon);
-
-  final IconData icon;
+/// 実APIに接続できない環境でサンプルデータを出していることを示すバッジ。
+class _MockBadge extends StatelessWidget {
+  const _MockBadge();
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Icon(icon, color: TopazColors.onSurface, size: 26),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: TopazColors.cyanSurface,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Text(
+        'SAMPLE',
+        style: TextStyle(
+          color: TopazColors.deep,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
+        ),
+      ),
     );
   }
 }
