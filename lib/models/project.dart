@@ -11,6 +11,8 @@ class Project {
     required this.avatarUrl,
     required this.techs,
     required this.likeCount,
+    this.githubId = '',
+    this.twitterId = '',
   });
 
   /// 画像の配信元。API が返すパスは相対なのでこれを前に付ける。
@@ -38,11 +40,25 @@ class Project {
 
   final int likeCount;
 
+  /// 投稿者のGitHubアカウント名 (`user.social.github_id`)。未設定なら空文字。
+  final String githubId;
+
+  /// 投稿者のX(Twitter)アカウント名 (`user.social.twitter_id`)。未設定なら空文字。
+  final String twitterId;
+
   /// topaz.dev 上のプロジェクトページ。
   String get topazUrl => '$siteBaseUrl/projects/$id';
 
+  /// 投稿者のGitHubページ。未設定なら null。
+  String? get githubUrl =>
+      githubId.isEmpty ? null : 'https://github.com/$githubId';
+
+  /// 投稿者のXページ。未設定なら null。
+  String? get xUrl => twitterId.isEmpty ? null : 'https://x.com/$twitterId';
+
   factory Project.fromJson(Map<String, dynamic> json) {
     final user = json['user'] as Map<String, dynamic>? ?? const {};
+    final social = user['social'] as Map<String, dynamic>? ?? const {};
     final tags = json['technology_tag_list'] as List<dynamic>? ?? const [];
     return Project(
       id: json['id'] as String,
@@ -57,7 +73,15 @@ class Project {
             tag['id'] as String,
       ],
       likeCount: (json['like_count'] as num?)?.toInt() ?? 0,
+      githubId: accountName(social['github_id'] as String?),
+      twitterId: accountName(social['twitter_id'] as String?),
     );
+  }
+
+  /// SNSのアカウント名を正規化する。未設定は空文字、先頭の `@` は落とす。
+  static String accountName(String? raw) {
+    final name = raw?.trim() ?? '';
+    return name.startsWith('@') ? name.substring(1) : name;
   }
 
   /// 相対パスなら配信元のホストを補って絶対URLにする。

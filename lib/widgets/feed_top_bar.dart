@@ -35,7 +35,7 @@ class FeedTopBar extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 8, 0),
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
               child: Row(
                 children: [
                   const DopazLogo(),
@@ -43,9 +43,6 @@ class FeedTopBar extends StatelessWidget {
                     const SizedBox(width: 8),
                     const _MockBadge(),
                   ],
-                  const Spacer(),
-                  const _HeaderIcon(Icons.search),
-                  const _HeaderIcon(Icons.more_vert),
                 ],
               ),
             ),
@@ -104,20 +101,6 @@ class _MockBadge extends StatelessWidget {
           letterSpacing: 0.5,
         ),
       ),
-    );
-  }
-}
-
-class _HeaderIcon extends StatelessWidget {
-  const _HeaderIcon(this.icon);
-
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Icon(icon, color: TopazColors.onSurface, size: 26),
     );
   }
 }

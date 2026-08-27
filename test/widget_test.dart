@@ -2,6 +2,7 @@ import 'package:dopaz/models/project.dart';
 import 'package:dopaz/pages/feed_page.dart';
 import 'package:dopaz/repositories/feed_repository.dart';
 import 'package:dopaz/widgets/dopaz_logo.dart';
+import 'package:dopaz/widgets/feed_seek_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -13,6 +14,8 @@ Map<String, dynamic> _projectJson({
   required String userName,
   required List<String> techs,
   int likeCount = 0,
+  String githubId = '',
+  String twitterId = '',
 }) {
   return {
     'id': id,
@@ -28,7 +31,7 @@ Map<String, dynamic> _projectJson({
       'avatar_image_path':
           'https://ptera-publish.topaz.dev/defaults/no_avatar.jpg',
       'user_name': userName,
-      'social': {'github_id': '', 'twitter_id': ''},
+      'social': {'github_id': githubId, 'twitter_id': twitterId},
     },
     'like_count': likeCount,
     'hackathon': null,
@@ -47,6 +50,8 @@ ProjectPage _page1({int lastPage = 1}) {
         userName: 'akubi',
         techs: ['Flutter', 'Dart'],
         likeCount: 57000,
+        githubId: 'akubi-gh',
+        twitterId: 'akubi-x',
       ),
       _projectJson(
         id: 'p2',
@@ -137,7 +142,6 @@ void main() {
     expect(find.text('あくび'), findsOneWidget);
     expect(find.text('@akubi'), findsOneWidget);
     expect(find.text('ドーパミン駆動のプロジェクト発見アプリ'), findsOneWidget);
-    expect(find.text('フォロー'), findsOneWidget);
     expect(find.text('#Flutter #Dart'), findsOneWidget);
 
     // 右下のアクションレール(5.7万 = 57000件のいいね)
@@ -190,6 +194,35 @@ void main() {
 
     expect(find.text('@sound_walker'), findsOneWidget);
     expect(find.text('@akubi'), findsNothing);
+  });
+
+  testWidgets('シークバーを横にドラッグして送れる', (WidgetTester tester) async {
+    await pumpFeed(tester, _FakeFeed([_page1()]));
+    await tester.pumpAndSettle();
+
+    expect(find.text('@akubi'), findsOneWidget);
+
+    // 左端から右端までドラッグすると最後のプロジェクトへ
+    final bar = tester.getRect(find.byType(FeedSeekBar));
+    await tester.dragFrom(
+      bar.centerLeft + const Offset(1, 0),
+      Offset(bar.width, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('@sound_walker'), findsOneWidget);
+    expect(find.text('@akubi'), findsNothing);
+  });
+
+  testWidgets('シークバーをタップした位置に移動する', (WidgetTester tester) async {
+    await pumpFeed(tester, _FakeFeed([_page1()]));
+    await tester.pumpAndSettle();
+
+    // 3件の中央をタップすると2件目
+    await tester.tapAt(tester.getRect(find.byType(FeedSeekBar)).center);
+    await tester.pumpAndSettle();
+
+    expect(find.text('@hackathon_taro'), findsOneWidget);
   });
 
   testWidgets('末尾に近づくと次のページを読み込む', (WidgetTester tester) async {

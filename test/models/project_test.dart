@@ -86,6 +86,50 @@ void main() {
     );
   });
 
+  test('SNSのアカウント名からURLを組み立てる', () {
+    final page = ProjectPage.fromJson(
+      jsonDecode(_sampleJson) as Map<String, dynamic>,
+    );
+
+    final project = page.projects.single;
+    expect(project.githubUrl, 'https://github.com/ibuki3268');
+    expect(project.xUrl, 'https://x.com/ibuki3268_');
+  });
+
+  test('SNSのアカウントが空ならURLはnull', () {
+    final page = ProjectPage.fromJson({
+      'data': [
+        {
+          'id': 'abc',
+          'user': {
+            'social': {'github_id': '', 'twitter_id': '  '},
+          },
+        },
+      ],
+    });
+
+    final project = page.projects.single;
+    expect(project.githubUrl, isNull);
+    expect(project.xUrl, isNull);
+  });
+
+  test('アカウント名の先頭の @ は落とす', () {
+    final page = ProjectPage.fromJson({
+      'data': [
+        {
+          'id': 'abc',
+          'user': {
+            'social': {'github_id': '@octocat', 'twitter_id': '@jack'},
+          },
+        },
+      ],
+    });
+
+    final project = page.projects.single;
+    expect(project.githubUrl, 'https://github.com/octocat');
+    expect(project.xUrl, 'https://x.com/jack');
+  });
+
   test('欠けているフィールドがあっても落ちない', () {
     final page = ProjectPage.fromJson({
       'data': [

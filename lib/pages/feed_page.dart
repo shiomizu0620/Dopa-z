@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/project.dart';
 import '../repositories/feed_repository.dart';
 import '../theme.dart';
+import '../widgets/feed_seek_bar.dart';
 import '../widgets/feed_top_bar.dart';
 import '../widgets/project_card.dart';
 
@@ -154,6 +155,12 @@ class _FeedPageState extends State<FeedPage> {
     }
   }
 
+  /// シークバーで指した位置へ送る。
+  void _seekTo(int index) {
+    if (!_pageController.hasClients) return;
+    _pageController.jumpToPage(index);
+  }
+
   void _onTechSelected(String? tech) {
     setState(() {
       _selectedTech = tech;
@@ -165,13 +172,16 @@ class _FeedPageState extends State<FeedPage> {
     _precacheAround(0);
   }
 
-  Future<void> _openTopaz(Project project) async {
-    final uri = Uri.parse(project.topazUrl);
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+  /// topaz.dev や作者のSNSページを外部ブラウザで開く。
+  Future<void> _openUrl(String url) async {
+    final ok = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
     if (!ok && mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('開けませんでした: ${project.topazUrl}')));
+      ).showSnackBar(SnackBar(content: Text('開けませんでした: $url')));
     }
   }
 
@@ -195,8 +205,10 @@ class _FeedPageState extends State<FeedPage> {
             if (!_initialLoading && _error == null && _projects.isNotEmpty)
               SafeArea(
                 top: false,
-                child: _FeedProgressBar(
-                  progress: (_currentIndex + 1) / _projects.length,
+                child: FeedSeekBar(
+                  itemCount: _projects.length,
+                  currentIndex: _currentIndex.clamp(0, _projects.length - 1),
+                  onSeek: _seekTo,
                 ),
               ),
           ],
@@ -228,10 +240,7 @@ class _FeedPageState extends State<FeedPage> {
       onPageChanged: _onPageChanged,
       itemBuilder: (context, index) {
         final project = projects[index];
-        return ProjectCard(
-          project: project,
-          onOpenTopaz: () => _openTopaz(project),
-        );
+        return ProjectCard(project: project, onOpenUrl: _openUrl);
       },
     );
   }
@@ -267,62 +276,6 @@ class _ErrorView extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// フィード内の位置を示すシークバー風のインジケーター。
-class _FeedProgressBar extends StatelessWidget {
-  const _FeedProgressBar({required this.progress});
-
-  final double progress;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        return TweenAnimationBuilder<double>(
-          tween: Tween(end: progress.clamp(0.0, 1.0)),
-          duration: const Duration(milliseconds: 200),
-          builder: (context, value, _) {
-            return SizedBox(
-              height: 14,
-              child: Stack(
-                children: [
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: 6,
-                    child: Container(height: 2.5, color: TopazColors.border),
-                  ),
-                  Positioned(
-                    left: 0,
-                    top: 6,
-                    child: Container(
-                      width: width * value,
-                      height: 2.5,
-                      color: TopazColors.cyan,
-                    ),
-                  ),
-                  Positioned(
-                    left: (width * value - 5).clamp(0.0, width - 10),
-                    top: 2,
-                    child: Container(
-                      width: 10,
-                      height: 10,
-                      decoration: const BoxDecoration(
-                        color: TopazColors.cyan,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 }
