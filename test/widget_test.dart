@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:dopaz/models/project.dart';
 import 'package:dopaz/pages/feed_page.dart';
 import 'package:dopaz/repositories/feed_repository.dart';
@@ -72,16 +74,21 @@ ProjectPage _page1({int lastPage = 1}) {
   });
 }
 
-ProjectPage _page2() {
+/// 1件だけ載せたページ。
+ProjectPage _singleItemPage({
+  required int number,
+  required int lastPage,
+  required String userName,
+}) {
   return ProjectPage.fromJson({
-    'current_page': 2,
-    'last_page': 2,
+    'current_page': number,
+    'last_page': lastPage,
     'data': [
       _projectJson(
-        id: 'p4',
-        title: '2ページ目のプロジェクト',
-        displayName: 'つぎ',
-        userName: 'next_user',
+        id: 'p_$userName',
+        title: '$number ページ目のプロジェクト',
+        displayName: userName,
+        userName: userName,
         techs: ['Go'],
       ),
     ],
@@ -102,6 +109,19 @@ class _FakeFeed implements ProjectFeed {
   }
 }
 
+/// shuffle しても並びが変わらない Random。
+/// `nextInt(n)` が常に `n - 1` を返すと、Dartのshuffleは要素を動かさない。
+class _NoShuffle implements Random {
+  @override
+  int nextInt(int max) => max - 1;
+
+  @override
+  bool nextBool() => false;
+
+  @override
+  double nextDouble() => 0;
+}
+
 /// 必ず失敗するフィード。
 class _FailingFeed implements ProjectFeed {
   int calls = 0;
@@ -115,10 +135,19 @@ class _FailingFeed implements ProjectFeed {
 
 void main() {
   /// スマホ相当のサイズで描画する(オーバーフロー検出のため)。
-  Future<void> pumpFeed(WidgetTester tester, ProjectFeed feed) async {
+  /// 並び順を検証したいので、既定では順番が変わらない乱数を使う。
+  Future<void> pumpFeed(
+    WidgetTester tester,
+    ProjectFeed feed, {
+    Random? random,
+  }) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(MaterialApp(home: FeedPage(repository: feed)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FeedPage(repository: feed, random: random ?? _NoShuffle()),
+      ),
+    );
   }
 
   testWidgets('起動直後はローディングが表示される', (WidgetTester tester) async {
@@ -225,26 +254,81 @@ void main() {
     expect(find.text('@hackathon_taro'), findsOneWidget);
   });
 
-  testWidgets('末尾に近づくと次のページを読み込む', (WidgetTester tester) async {
-    final feed = _FakeFeed([_page1(lastPage: 2), _page2()]);
+  testWidgets('初回に1ページ目ともう1ページを読み込む', (WidgetTester tester) async {
+    final feed = _FakeFeed([
+      _page1(lastPage: 3),
+      _singleItemPage(number: 2, lastPage: 3, userName: 'second_user'),
+      _singleItemPage(number: 3, lastPage: 3, userName: 'third_user'),
+    ]);
+    // 総ページ数を知るために1ページ目、そのあとランダムに1ページ
+    await pumpFeed(tester, feed, random: Random(0));
+    await tester.pumpAndSettle();
+
+    expect(feed.requestedPages, hasLength(2));
+    expect(feed.requestedPages.first, 1);
+    expect(feed.requestedPages[1], isNot(1));
+  });
+
+  testWidgets('読み終わっていないページから追加で読み込む', (WidgetTester tester) async {
+    final feed = _FakeFeed([
+      _page1(lastPage: 3),
+      _singleItemPage(number: 2, lastPage: 3, userName: 'second_user'),
+      _singleItemPage(number: 3, lastPage: 3, userName: 'third_user'),
+    ]);
     await pumpFeed(tester, feed);
     await tester.pumpAndSettle();
 
-    expect(feed.requestedPages, [1]);
+    // _NoShuffle は候補の末尾を選ぶので、初回は 1 と 3 ページ目
+    expect(feed.requestedPages, [1, 3]);
 
-    // 3件しかないので1回スワイプすれば残り2件になり追加読み込みが走る
+    // 1回スワイプすると残りページ (2) を取りに行く
     await tester.fling(find.byType(PageView), const Offset(0, -400), 1000);
     await tester.pumpAndSettle();
 
-    expect(feed.requestedPages, [1, 2]);
+    expect(feed.requestedPages, [1, 3, 2]);
 
-    // 追加分まで進める
+    // 1ページ目の3件を過ぎると、あとから足したページの項目が出てくる
     await tester.fling(find.byType(PageView), const Offset(0, -400), 1000);
     await tester.pumpAndSettle();
     await tester.fling(find.byType(PageView), const Offset(0, -400), 1000);
     await tester.pumpAndSettle();
 
-    expect(find.text('@next_user'), findsOneWidget);
+    expect(find.text('@third_user'), findsOneWidget);
+    // 全ページ読み終わったのでもう取りに行かない
+    expect(feed.requestedPages, [1, 3, 2]);
+  });
+
+  testWidgets('新着順に切り替えると1ページ目から順に読む', (WidgetTester tester) async {
+    final feed = _FakeFeed([
+      _page1(lastPage: 3),
+      _singleItemPage(number: 2, lastPage: 3, userName: 'second_user'),
+      _singleItemPage(number: 3, lastPage: 3, userName: 'third_user'),
+    ]);
+    await pumpFeed(tester, feed);
+    await tester.pumpAndSettle();
+
+    // ランダムなので1ページ目 + 別の1ページ
+    expect(feed.requestedPages, [1, 3]);
+
+    await tester.tap(find.text('新着'));
+    await tester.pumpAndSettle();
+
+    // 読み直して1ページ目から。続きは2ページ目
+    expect(feed.requestedPages, [1, 3, 1]);
+    expect(find.text('@akubi'), findsOneWidget);
+
+    await tester.fling(find.byType(PageView), const Offset(0, -400), 1000);
+    await tester.pumpAndSettle();
+
+    expect(feed.requestedPages, [1, 3, 1, 2]);
+  });
+
+  testWidgets('並び順のトグルは現在の選択を示す', (WidgetTester tester) async {
+    await pumpFeed(tester, _FakeFeed([_page1()]));
+    await tester.pumpAndSettle();
+
+    expect(find.text('新着'), findsOneWidget);
+    expect(find.text('ランダム'), findsOneWidget);
   });
 
   testWidgets('取得に失敗したら再読み込みできる', (WidgetTester tester) async {
