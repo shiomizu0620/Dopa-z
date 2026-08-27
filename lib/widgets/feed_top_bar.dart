@@ -10,6 +10,7 @@ class FeedTopBar extends StatelessWidget {
     required this.techs,
     required this.selectedTech,
     required this.onTechSelected,
+    this.showMockBadge = false,
   });
 
   /// フィルターに出す技術タグ(先頭の「すべて」を除く)。
@@ -19,6 +20,9 @@ class FeedTopBar extends StatelessWidget {
   final String? selectedTech;
 
   final ValueChanged<String?> onTechSelected;
+
+  /// 実APIではなくサンプルデータを表示していることを示すバッジを出すか。
+  final bool showMockBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +39,10 @@ class FeedTopBar extends StatelessWidget {
               child: Row(
                 children: [
                   const DopazLogo(),
+                  if (showMockBadge) ...[
+                    const SizedBox(width: 8),
+                    const _MockBadge(),
+                  ],
                   const Spacer(),
                   const _HeaderIcon(Icons.search),
                   const _HeaderIcon(Icons.more_vert),
@@ -69,6 +77,31 @@ class FeedTopBar extends StatelessWidget {
             const SizedBox(height: 10),
             const Divider(height: 1, thickness: 1, color: TopazColors.border),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 実APIに接続できない環境でサンプルデータを出していることを示すバッジ。
+class _MockBadge extends StatelessWidget {
+  const _MockBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: TopazColors.cyanSurface,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Text(
+        'SAMPLE',
+        style: TextStyle(
+          color: TopazColors.deep,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
         ),
       ),
     );

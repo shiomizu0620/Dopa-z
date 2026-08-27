@@ -10,26 +10,45 @@ import '../widgets/project_card.dart';
 
 /// YouTube Shorts風の縦スワイプフィード。
 class FeedPage extends StatefulWidget {
-  const FeedPage({super.key});
+  const FeedPage({
+    super.key,
+    required this.repository,
+    this.usingMockData = false,
+  });
+
+  final ProjectFeed repository;
+
+  /// サンプルデータを表示していることをヘッダーに出すか。
+  final bool usingMockData;
 
   @override
   State<FeedPage> createState() => _FeedPageState();
 }
 
 class _FeedPageState extends State<FeedPage> {
-  final FeedRepository _repository = FeedRepository();
   final PageController _pageController = PageController();
 
   /// 現在ページの前後何件分のサムネイルを先読みするか。
   static const _precacheAhead = 2;
   static const _precacheBehind = 1;
 
-  late Future<List<Project>> _projectsFuture;
+  /// 残りがこの件数以下になったら次のページを取りに行く。
+  static const _loadMoreThreshold = 3;
+
+  /// フィルターチップに出す技術タグの最大数。
+  static const _maxTechChips = 12;
+
+  bool _initialLoading = true;
+  String? _error;
 
   List<Project> _allProjects = const [];
   List<String> _techs = const [];
   String? _selectedTech;
   int _currentIndex = 0;
+
+  int _loadedPage = 0;
+  int _lastPage = 1;
+  bool _loadingMore = false;
 
   final Set<String> _precached = {};
 
@@ -43,7 +62,7 @@ class _FeedPageState extends State<FeedPage> {
   @override
   void initState() {
     super.initState();
-    _projectsFuture = _load();
+    _loadInitial();
   }
 
   @override
@@ -52,14 +71,49 @@ class _FeedPageState extends State<FeedPage> {
     super.dispose();
   }
 
-  Future<List<Project>> _load() async {
-    final projects = await _repository.fetchProjects();
-    _allProjects = projects;
-    _techs = _collectTechs(projects);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _precacheAround(0);
+  Future<void> _loadInitial() async {
+    setState(() {
+      _initialLoading = true;
+      _error = null;
     });
-    return projects;
+    try {
+      final page = await widget.repository.fetchProjects(page: 1);
+      if (!mounted) return;
+      setState(() {
+        _allProjects = page.projects;
+        _loadedPage = page.currentPage;
+        _lastPage = page.lastPage;
+        _techs = _collectTechs(page.projects);
+        _initialLoading = false;
+      });
+      _precacheAround(0);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e is FeedException ? e.message : '$e';
+        _initialLoading = false;
+      });
+    }
+  }
+
+  /// 次のページを追加で読み込む。失敗しても画面は止めない。
+  Future<void> _loadMore() async {
+    if (_loadingMore || _loadedPage >= _lastPage) return;
+    _loadingMore = true;
+    try {
+      final page = await widget.repository.fetchProjects(page: _loadedPage + 1);
+      if (!mounted) return;
+      setState(() {
+        _allProjects = [..._allProjects, ...page.projects];
+        _loadedPage = page.currentPage;
+        _lastPage = page.lastPage;
+        _techs = _collectTechs(_allProjects);
+      });
+    } catch (_) {
+      // 追加読み込みの失敗は次のスワイプで再試行されるので黙って諦める
+    } finally {
+      _loadingMore = false;
+    }
   }
 
   /// 出現回数の多い順に技術タグを集める。
@@ -70,8 +124,9 @@ class _FeedPageState extends State<FeedPage> {
         counts[tech] = (counts[tech] ?? 0) + 1;
       }
     }
-    return counts.keys.toList()
+    final techs = counts.keys.toList()
       ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+    return techs.take(_maxTechChips).toList();
   }
 
   /// [index] の前後のサムネイルをImageCacheに先読みし、
@@ -82,7 +137,8 @@ class _FeedPageState extends State<FeedPage> {
     final start = (index - _precacheBehind).clamp(0, projects.length - 1);
     final end = (index + _precacheAhead).clamp(0, projects.length - 1);
     for (var i = start; i <= end; i++) {
-      final url = projects[i].thumbnail;
+      final url = projects[i].thumbnailUrl;
+      if (url.isEmpty) continue;
       if (_precached.add(url)) {
         // 先読み失敗は無視(表示時にerrorBuilderで処理される)
         precacheImage(NetworkImage(url), context, onError: (_, __) {});
@@ -93,6 +149,9 @@ class _FeedPageState extends State<FeedPage> {
   void _onPageChanged(int index) {
     setState(() => _currentIndex = index);
     _precacheAround(index);
+    if (index >= _projects.length - _loadMoreThreshold) {
+      _loadMore();
+    }
   }
 
   void _onTechSelected(String? tech) {
@@ -123,64 +182,89 @@ class _FeedPageState extends State<FeedPage> {
       value: SystemUiOverlayStyle.dark,
       child: Scaffold(
         backgroundColor: TopazColors.surface,
-        body: FutureBuilder<List<Project>>(
-          future: _projectsFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(
-                child: CircularProgressIndicator(color: TopazColors.cyan),
-              );
-            }
-            if (snapshot.hasError) {
-              return Center(
-                child: Text(
-                  '読み込みに失敗しました\n${snapshot.error}',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: TopazColors.muted),
+        body: Column(
+          children: [
+            // 上部のセーフエリアは FeedTopBar が確保する
+            FeedTopBar(
+              techs: _techs,
+              selectedTech: _selectedTech,
+              onTechSelected: _onTechSelected,
+              showMockBadge: widget.usingMockData,
+            ),
+            Expanded(child: _buildBody()),
+            if (!_initialLoading && _error == null && _projects.isNotEmpty)
+              SafeArea(
+                top: false,
+                child: _FeedProgressBar(
+                  progress: (_currentIndex + 1) / _projects.length,
                 ),
-              );
-            }
-            final projects = _projects;
-            return Column(
-              children: [
-                FeedTopBar(
-                  techs: _techs,
-                  selectedTech: _selectedTech,
-                  onTechSelected: _onTechSelected,
-                ),
-                Expanded(
-                  child: projects.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'プロジェクトがありません',
-                            style: TextStyle(color: TopazColors.muted),
-                          ),
-                        )
-                      : PageView.builder(
-                          controller: _pageController,
-                          scrollDirection: Axis.vertical,
-                          allowImplicitScrolling: true,
-                          itemCount: projects.length,
-                          onPageChanged: _onPageChanged,
-                          itemBuilder: (context, index) {
-                            final project = projects[index];
-                            return ProjectCard(
-                              project: project,
-                              onOpenTopaz: () => _openTopaz(project),
-                            );
-                          },
-                        ),
-                ),
-                if (projects.isNotEmpty)
-                  SafeArea(
-                    top: false,
-                    child: _FeedProgressBar(
-                      progress: (_currentIndex + 1) / projects.length,
-                    ),
-                  ),
-              ],
-            );
-          },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_initialLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: TopazColors.cyan),
+      );
+    }
+    if (_error != null) {
+      return _ErrorView(message: _error!, onRetry: _loadInitial);
+    }
+    final projects = _projects;
+    if (projects.isEmpty) {
+      return const Center(
+        child: Text('プロジェクトがありません', style: TextStyle(color: TopazColors.muted)),
+      );
+    }
+    return PageView.builder(
+      controller: _pageController,
+      scrollDirection: Axis.vertical,
+      allowImplicitScrolling: true,
+      itemCount: projects.length,
+      onPageChanged: _onPageChanged,
+      itemBuilder: (context, index) {
+        final project = projects[index];
+        return ProjectCard(
+          project: project,
+          onOpenTopaz: () => _openTopaz(project),
+        );
+      },
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, color: TopazColors.border, size: 56),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: TopazColors.muted, fontSize: 14),
+            ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: onRetry,
+              style: FilledButton.styleFrom(backgroundColor: TopazColors.cyan),
+              child: const Text('再読み込み'),
+            ),
+          ],
         ),
       ),
     );

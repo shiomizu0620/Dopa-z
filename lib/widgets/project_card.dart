@@ -25,7 +25,7 @@ class ProjectCard extends StatelessWidget {
         Expanded(
           child: Stack(
             children: [
-              Positioned.fill(child: _Thumbnail(url: project.thumbnail)),
+              Positioned.fill(child: _Thumbnail(url: project.thumbnailUrl)),
               // Shorts と同じくサムネイル右下に縦並びで置く
               Positioned(
                 right: 6,
@@ -83,17 +83,36 @@ class _ProjectInfo extends StatelessWidget {
         children: [
           Row(
             children: [
-              _AuthorAvatar(author: project.author),
+              _AuthorAvatar(
+                name: project.authorName,
+                avatarUrl: project.avatarUrl,
+              ),
               const SizedBox(width: 8),
               Flexible(
-                child: Text(
-                  '@${project.author}',
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: TopazColors.onSurface,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      project.authorName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: TopazColors.onSurface,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      '@${project.authorUserName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: TopazColors.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 10),
@@ -132,26 +151,44 @@ class _ProjectInfo extends StatelessWidget {
 }
 
 class _AuthorAvatar extends StatelessWidget {
-  const _AuthorAvatar({required this.author});
+  const _AuthorAvatar({required this.name, required this.avatarUrl});
 
-  final String author;
+  final String name;
+  final String avatarUrl;
+
+  static const _size = 36.0;
 
   @override
   Widget build(BuildContext context) {
-    // 作者名から決まる色を割り当てる(アバター画像は未提供のため)
-    final hue = (author.hashCode.abs() % 360).toDouble();
+    return ClipOval(
+      child: SizedBox(
+        width: _size,
+        height: _size,
+        child: avatarUrl.isEmpty
+            ? _fallback()
+            : Image.network(
+                avatarUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => _fallback(),
+              ),
+      ),
+    );
+  }
+
+  /// アバターを読み込めないときは名前の頭文字を出す。
+  Widget _fallback() {
+    final hue = (name.hashCode.abs() % 360).toDouble();
     final color = HSLColor.fromAHSL(1, hue, 0.45, 0.55).toColor();
-    return Container(
-      width: 32,
-      height: 32,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      child: Text(
-        author.characters.first.toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
+    return ColoredBox(
+      color: color,
+      child: Center(
+        child: Text(
+          name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );
@@ -200,15 +237,11 @@ class _ActionRail extends StatelessWidget {
       children: [
         // いいね数は topaz.dev から取得した値の表示のみ。
         // このアプリからいいねを付けることはできない。
+        // (コメント数は API が返さないので出していない)
         _RailButton(
           icon: Icons.favorite_border,
-          label: _formatCount(project.likes),
+          label: _formatCount(project.likeCount),
           onTap: () => showTopazOnly(context, 'いいね', onOpenTopaz),
-        ),
-        _RailButton(
-          icon: Icons.comment,
-          label: _formatCount(project.comments),
-          onTap: () => showTopazOnly(context, 'コメント', onOpenTopaz),
         ),
         _RailButton(
           icon: Icons.reply,
