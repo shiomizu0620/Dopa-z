@@ -1,7 +1,10 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../models/feed_order.dart';
 import '../models/project.dart';
 import '../repositories/feed_repository.dart';
 import '../theme.dart';
@@ -15,29 +18,46 @@ class FeedPage extends StatefulWidget {
     super.key,
     required this.repository,
     this.usingMockData = false,
+    this.initialOrder = FeedOrder.random,
+    this.random,
   });
 
   final ProjectFeed repository;
 
+  /// 起動時の並び順。
+  final FeedOrder initialOrder;
+
   /// サンプルデータを表示していることをヘッダーに出すか。
   final bool usingMockData;
+
+  /// ページ選択とシャッフルに使う乱数。テストで固定するために差し替えられる。
+  final Random? random;
 
   @override
   State<FeedPage> createState() => _FeedPageState();
 }
 
 class _FeedPageState extends State<FeedPage> {
-  final PageController _pageController = PageController();
+  /// 並び順を切り替えるとPageViewが作り直されるので、
+  /// 前の位置を復元せず必ず先頭から始まるようにする。
+  final PageController _pageController = PageController(keepPage: false);
 
   /// 現在ページの前後何件分のサムネイルを先読みするか。
-  static const _precacheAhead = 2;
+  static const _precacheAhead = 3;
   static const _precacheBehind = 1;
 
+  /// 追加読み込みしたページのうち、届いた時点で先読みしておく件数。
+  static const _precacheOnArrival = 4;
+
   /// 残りがこの件数以下になったら次のページを取りに行く。
-  static const _loadMoreThreshold = 3;
+  /// 1ページ12件なので、半分ほど残っている時点で取り始める。
+  static const _loadMoreThreshold = 6;
 
   /// フィルターチップに出す技術タグの最大数。
   static const _maxTechChips = 12;
+
+  late final Random _random = widget.random ?? Random();
+  late FeedOrder _order = widget.initialOrder;
 
   bool _initialLoading = true;
   String? _error;
@@ -47,7 +67,8 @@ class _FeedPageState extends State<FeedPage> {
   String? _selectedTech;
   int _currentIndex = 0;
 
-  int _loadedPage = 0;
+  /// 取得済みのページ番号。同じページを二度読まないために持つ。
+  final Set<int> _loadedPages = {};
   int _lastPage = 1;
   bool _loadingMore = false;
 
@@ -78,13 +99,23 @@ class _FeedPageState extends State<FeedPage> {
       _error = null;
     });
     try {
-      final page = await widget.repository.fetchProjects(page: 1);
+      // APIに並び替えの指定が無いので、まず1ページ目を取って総ページ数を知る。
+      final first = await widget.repository.fetchProjects(page: 1);
+      _loadedPages.add(first.currentPage);
+      _lastPage = first.lastPage;
+
+      final projects = [...first.projects];
+      if (_order == FeedOrder.random) {
+        // 1ページ目 (新着) だけに偏らないよう、全体からもう1ページ混ぜる。
+        // ここで2ページ分持っておくと、最初の追加読み込みまでの余裕もできる。
+        projects.addAll(await _fetchNextPage() ?? const []);
+        projects.shuffle(_random);
+      }
+
       if (!mounted) return;
       setState(() {
-        _allProjects = page.projects;
-        _loadedPage = page.currentPage;
-        _lastPage = page.lastPage;
-        _techs = _collectTechs(page.projects);
+        _allProjects = projects;
+        _techs = _collectTechs(projects);
         _initialLoading = false;
       });
       _precacheAround(0);
@@ -97,21 +128,68 @@ class _FeedPageState extends State<FeedPage> {
     }
   }
 
-  /// 次のページを追加で読み込む。失敗しても画面は止めない。
+  /// まだ読んでいないページを1つ取る。
+  /// 全ページ読み終わっている、または失敗した場合は null。
+  Future<List<Project>?> _fetchNextPage() async {
+    final page = _pickUnloadedPage();
+    if (page == null) return null;
+    try {
+      final result = await widget.repository.fetchProjects(page: page);
+      _loadedPages.add(result.currentPage);
+      _lastPage = result.lastPage;
+      final projects = result.projects.toList();
+      if (_order == FeedOrder.random) projects.shuffle(_random);
+      return projects;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 次に読むページ番号を並び順に応じて選ぶ。
+  /// 新着順なら続きのページ、ランダムなら未読からランダムに1つ。
+  int? _pickUnloadedPage() {
+    if (_order == FeedOrder.latest) {
+      final next = _loadedPages.isEmpty ? 1 : _loadedPages.reduce(max) + 1;
+      return next <= _lastPage ? next : null;
+    }
+    final candidates = [
+      for (var page = 1; page <= _lastPage; page++)
+        if (!_loadedPages.contains(page)) page,
+    ];
+    if (candidates.isEmpty) return null;
+    return candidates[_random.nextInt(candidates.length)];
+  }
+
+  /// 並び順を切り替えて読み直す。
+  void _onOrderSelected(FeedOrder order) {
+    if (order == _order) return;
+    setState(() {
+      _order = order;
+      _allProjects = const [];
+      _techs = const [];
+      _selectedTech = null;
+      _currentIndex = 0;
+      _loadedPages.clear();
+      _lastPage = 1;
+    });
+    _loadInitial();
+  }
+
+  /// 次のページを先に読み込んでおく。失敗しても画面は止めない。
   Future<void> _loadMore() async {
-    if (_loadingMore || _loadedPage >= _lastPage) return;
+    if (_loadingMore) return;
     _loadingMore = true;
     try {
-      final page = await widget.repository.fetchProjects(page: _loadedPage + 1);
-      if (!mounted) return;
+      final projects = await _fetchNextPage();
+      if (projects == null || projects.isEmpty || !mounted) return;
+      final addedFrom = _allProjects.length;
       setState(() {
-        _allProjects = [..._allProjects, ...page.projects];
-        _loadedPage = page.currentPage;
-        _lastPage = page.lastPage;
+        _allProjects = [..._allProjects, ...projects];
         _techs = _collectTechs(_allProjects);
       });
-    } catch (_) {
-      // 追加読み込みの失敗は次のスワイプで再試行されるので黙って諦める
+      // 届いた時点で先頭の何件かを先読みしておき、
+      // スワイプが追いついたときに読み込み待ちにならないようにする。
+      _precacheRange(addedFrom, addedFrom + _precacheOnArrival);
     } finally {
       _loadingMore = false;
     }
@@ -133,10 +211,15 @@ class _FeedPageState extends State<FeedPage> {
   /// [index] の前後のサムネイルをImageCacheに先読みし、
   /// スワイプした瞬間に表示できるようにする。
   void _precacheAround(int index) {
-    final projects = _projects;
+    _precacheRange(index - _precacheBehind, index + _precacheAhead, _projects);
+  }
+
+  /// [from] から [to] までのサムネイルをImageCacheに読み込んでおく。
+  void _precacheRange(int from, int to, [List<Project>? source]) {
+    final projects = source ?? _allProjects;
     if (projects.isEmpty) return;
-    final start = (index - _precacheBehind).clamp(0, projects.length - 1);
-    final end = (index + _precacheAhead).clamp(0, projects.length - 1);
+    final start = from.clamp(0, projects.length - 1);
+    final end = to.clamp(0, projects.length - 1);
     for (var i = start; i <= end; i++) {
       final url = projects[i].thumbnailUrl;
       if (url.isEmpty) continue;
@@ -199,6 +282,8 @@ class _FeedPageState extends State<FeedPage> {
               techs: _techs,
               selectedTech: _selectedTech,
               onTechSelected: _onTechSelected,
+              order: _order,
+              onOrderSelected: _onOrderSelected,
               showMockBadge: widget.usingMockData,
             ),
             Expanded(child: _buildBody()),

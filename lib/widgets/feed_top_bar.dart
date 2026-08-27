@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/feed_order.dart';
 import '../theme.dart';
 import 'dopaz_logo.dart';
 
@@ -10,8 +11,15 @@ class FeedTopBar extends StatelessWidget {
     required this.techs,
     required this.selectedTech,
     required this.onTechSelected,
+    required this.order,
+    required this.onOrderSelected,
     this.showMockBadge = false,
   });
+
+  /// 現在の並び順。
+  final FeedOrder order;
+
+  final ValueChanged<FeedOrder> onOrderSelected;
 
   /// フィルターに出す技術タグ(先頭の「すべて」を除く)。
   final List<String> techs;
@@ -43,6 +51,8 @@ class FeedTopBar extends StatelessWidget {
                     const SizedBox(width: 8),
                     const _MockBadge(),
                   ],
+                  const Spacer(),
+                  _OrderToggle(order: order, onSelected: onOrderSelected),
                 ],
               ),
             ),
@@ -75,6 +85,53 @@ class FeedTopBar extends StatelessWidget {
             const Divider(height: 1, thickness: 1, color: TopazColors.border),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 新着順とランダムを切り替えるトグル。
+class _OrderToggle extends StatelessWidget {
+  const _OrderToggle({required this.order, required this.onSelected});
+
+  final FeedOrder order;
+  final ValueChanged<FeedOrder> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: TopazColors.cyanSurface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final value in FeedOrder.values)
+            GestureDetector(
+              onTap: () => onSelected(value),
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: value == order ? TopazColors.cyan : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  value.label,
+                  style: TextStyle(
+                    color: value == order ? Colors.white : TopazColors.deep,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -58,13 +58,35 @@ curl -X GET https://topaz.dev/api/projects?page=1
 | 1ページの件数 | 12件 |
 | 画像 | `thumbnail_path` は相対パス。`https://ptera-publish.topaz.dev/` を前に付けて使う |
 | 文字コード | レスポンスの `Content-Type` に charset がないため、UTF-8として明示的にデコードする |
-| 並び順 | APIが返す順序 (新着順) をそのまま表示する。アプリ側では並べ替えない |
+| 並び順 | APIに並び替えの指定が無いので、アプリ側で「新着」「ランダム」を切り替える (下記) |
 | いいね数 | `like_count` を表示のみに使う |
 | SNS | `user.social.github_id` / `twitter_id` からリンクを作る。空文字のことが多い (実データでは12件中GitHub 6件・X 3件) |
 | コメント数 | APIが返さないため画面に出していない |
 
-フィードの末尾に近づくと次のページを自動で読み込みます
-([feed_page.dart](lib/pages/feed_page.dart) の `_loadMore`)。
+### 並び順 (新着 / ランダム)
+
+APIは新着順で返し、並び替えのパラメータもないため、
+[feed_page.dart](lib/pages/feed_page.dart) 側で切り替えています
+(種類は [feed_order.dart](lib/models/feed_order.dart) の `FeedOrder`)。
+ヘッダー右のトグルで切り替えると、フィードを読み直します。**既定はランダム**です。
+
+新着順は、APIが返す順序のまま1ページ目から順に読み進めます。
+ランダムは次のように動きます。
+
+1. 起動時にまず1ページ目を取り、`last_page` (現在90) を知る
+2. 続けて **まだ読んでいないページからランダムに1ページ** 取り、
+   2ページ分をまとめてシャッフルして表示する
+3. 以降の追加読み込みも、読んでいないページからランダムに選ぶ
+
+読み込みで引っかからないよう、次の3点で先に手を打っています。
+
+- 起動時に2ページ分(24件)持っておき、最初の追加読み込みまでの余裕を作る
+- 残り **6件** (1ページの半分) を切った時点で次のページを取りに行く (`_loadMoreThreshold`)
+- ページが届いた時点で **先頭4件のサムネイルを先読み** する (`_precacheOnArrival`)。
+  スワイプが追いついたときには画像がキャッシュ済みになっている
+
+起動時だけAPIを2回叩くため、初回表示はその分わずかに遅くなります
+(実測で1回あたり約300〜500ms)。
 
 ### Webプレビューではサンプルデータを使う
 
@@ -92,6 +114,7 @@ lib/
 ├── main.dart                        # アプリのエントリポイント (実行環境に応じてリポジトリを選択)
 ├── theme.dart                       # topaz.dev のテーマ色 (水色 + 白)
 ├── models/
+│   ├── feed_order.dart              # 並び順 (新着 / ランダム)
 │   └── project.dart                 # Project / ProjectPage (APIレスポンスに対応)
 ├── repositories/
 │   ├── feed_repository.dart         # ProjectFeed と topaz.dev API 実装
@@ -111,6 +134,7 @@ YouTube Shorts のレイアウトに寄せつつ、配色は topaz.dev のテー
 色は [lib/theme.dart](lib/theme.dart) の `TopazColors` にまとめてあります。
 
 - 縦スワイプでページ送り
+- ヘッダー右のトグルで並び順(新着 / ランダム)を切り替え
 - ヘッダーの技術タグチップでフィード内容を絞り込み(選択中は水色)
 - 右下のアクションレール: いいね数・共有・topaz.dev を開く
 - サムネイル下: 作者アバター・表示名・ユーザー名・GitHub / X へのリンク・タイトル・技術タグ(ハッシュタグ表示)
