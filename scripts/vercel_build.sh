@@ -20,4 +20,7 @@ git config --global --add safe.directory "$PWD/$FLUTTER_DIR"
 
 flutter --version
 flutter pub get
-flutter build web --release
+# --wasm を付けると dart2wasm (Skwasm) と dart2js (CanvasKit) の両方が出力され、
+# ブラウザのWasmGC対応に応じてFlutterが自動で選ぶ。
+# 対応ブラウザでは配信量が約9.3MB→約5.7MBに減り、動作も速くなる。
+flutter build web --release --wasm
