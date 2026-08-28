@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 /// topaz.dev のプロジェクト。
 ///
 /// GET https://topaz.dev/api/projects の `data[]` に対応する。
@@ -16,7 +18,12 @@ class Project {
   });
 
   /// 画像の配信元。API が返すパスは相対なのでこれを前に付ける。
-  static const assetBaseUrl = 'https://ptera-publish.topaz.dev/';
+  ///
+  /// 画像ホストはCORSヘッダーを返さないため、ブラウザから直接読むと弾かれる。
+  /// Webでは同一オリジンの `/ptera/` を経由する (vercel.json の rewrite)。
+  static final String assetBaseUrl = kIsWeb
+      ? '/ptera/'
+      : 'https://ptera-publish.topaz.dev/';
 
   static const siteBaseUrl = 'https://topaz.dev';
 
