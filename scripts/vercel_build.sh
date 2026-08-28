@@ -15,12 +15,14 @@ clone_flutter() {
     --depth 1 --branch "$FLUTTER_VERSION" "$FLUTTER_DIR"
 }
 
-# キャッシュから復元したSDKはgitのindexが欠けることがある。その状態だと
-# Flutterがエンジンのバージョンをgitから引こうとして落ちる
-# (fatal: Not a valid object name origin/master)。
-# バージョンは bin/internal/engine.version に固定されているので直接渡し、
-# gitに頼らせないようにする。
-set_engine_version() {
+setup_env() {
+  export PATH="$PWD/$FLUTTER_DIR/bin:$PATH"
+  # SDKをリポジトリ配下に置いているため所有者チェックに引っかかる
+  git config --global --add safe.directory "$PWD/$FLUTTER_DIR"
+
+  # エンジンのバージョンは bin/internal/engine.version に固定されているが、
+  # Flutterはそれを読むかどうかをgitのindexで判定する。
+  # キャッシュ復元でindexが欠けると git の参照を辿って失敗するため、直接渡す。
   local file="$FLUTTER_DIR/bin/internal/engine.version"
   if [ -f "$file" ]; then
     export FLUTTER_PREBUILT_ENGINE_VERSION="$(cat "$file")"
@@ -31,18 +33,17 @@ if [ ! -x "$FLUTTER_DIR/bin/flutter" ]; then
   clone_flutter
 fi
 
-export PATH="$PWD/$FLUTTER_DIR/bin:$PATH"
-# SDKをリポジトリ配下に置いているため所有者チェックに引っかかる
-git config --global --add safe.directory "$PWD/$FLUTTER_DIR"
+setup_env
 
-set_engine_version
-
-# それでも動かないキャッシュは諦めて取り直す
-if ! flutter --version; then
+# キャッシュから復元したSDKはgitのメタデータが欠けることがあり、その状態の
+# Flutterは自分のバージョンを 0.0.0-unknown と誤認する。
+# `flutter --version` 自体はそれでも成功してしまうので、
+# 期待するバージョンが出ているかまで確かめ、駄目ならSDKを取り直す。
+if ! flutter --version | grep -q "$FLUTTER_VERSION"; then
   echo "キャッシュされたFlutter SDKが使えないので取り直します" >&2
   clone_flutter
-  set_engine_version
-  flutter --version
+  setup_env
+  flutter --version | grep -q "$FLUTTER_VERSION"
 fi
 
 flutter pub get
