@@ -6,6 +6,7 @@ import 'package:dopaz/repositories/feed_repository.dart';
 import 'package:dopaz/theme.dart';
 import 'package:dopaz/widgets/dopaz_logo.dart';
 import 'package:dopaz/widgets/feed_seek_bar.dart';
+import 'package:dopaz/widgets/feed_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -349,6 +350,20 @@ void main() {
 
     expect(find.text('新着'), findsOneWidget);
     expect(find.text('ランダム'), findsOneWidget);
+  });
+
+  testWidgets('ページ送りしてもヘッダーは作り直さない', (WidgetTester tester) async {
+    await pumpFeed(tester, _FakeFeed([_page1()]));
+    await tester.pumpAndSettle();
+
+    final before = tester.widget<FeedTopBar>(find.byType(FeedTopBar));
+
+    await tester.fling(find.byType(PageView), const Offset(0, -400), 1000);
+    await tester.pumpAndSettle();
+
+    // 同じインスタンスのままなら、ページ送りで画面全体を作り直していない
+    final after = tester.widget<FeedTopBar>(find.byType(FeedTopBar));
+    expect(identical(before, after), isTrue);
   });
 
   testWidgets('取得に失敗したら再読み込みできる', (WidgetTester tester) async {

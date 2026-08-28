@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -56,6 +57,9 @@ class _FeedPageState extends State<FeedPage> {
   /// フィルターチップに出す技術タグの最大数。
   static const _maxTechChips = 12;
 
+  /// スワイプが止まってから先読みを始めるまでの待ち時間。
+  static const _precacheDelay = Duration(milliseconds: 250);
+
   late final Random _random = widget.random ?? Random();
   late FeedOrder _order = widget.initialOrder;
 
@@ -65,7 +69,17 @@ class _FeedPageState extends State<FeedPage> {
   List<Project> _allProjects = const [];
   List<String> _techs = const [];
   String? _selectedTech;
-  int _currentIndex = 0;
+
+  /// 表示中のページ番号。ページ送りのたびに画面全体を作り直さずに済むよう、
+  /// シークバーだけが購読する値として持つ。
+  final ValueNotifier<int> _currentIndex = ValueNotifier(0);
+
+  /// フィルター適用後の表示対象。
+  /// ページ送りのたびに絞り込み直すと無駄なので、変わったときだけ作り直す。
+  List<Project> _visible = const [];
+
+  /// 技術タグの出現回数。追加読み込みのたびに全件を数え直さないよう持ち回る。
+  final Map<String, int> _techCounts = {};
 
   /// 取得済みのページ番号。同じページを二度読まないために持つ。
   final Set<int> _loadedPages = {};
@@ -73,12 +87,16 @@ class _FeedPageState extends State<FeedPage> {
   bool _loadingMore = false;
 
   final Set<String> _precached = {};
+  Timer? _precacheTimer;
 
-  /// フィルター適用後の表示対象。
-  List<Project> get _projects {
+  /// [_allProjects] か [_selectedTech] を変えたら呼ぶ。
+  void _updateVisible() {
     final tech = _selectedTech;
-    if (tech == null) return _allProjects;
-    return _allProjects.where((p) => p.techs.contains(tech)).toList();
+    _visible = tech == null
+        ? _allProjects
+        : _allProjects
+              .where((p) => p.techs.contains(tech))
+              .toList(growable: false);
   }
 
   @override
@@ -89,6 +107,8 @@ class _FeedPageState extends State<FeedPage> {
 
   @override
   void dispose() {
+    _precacheTimer?.cancel();
+    _currentIndex.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -115,9 +135,12 @@ class _FeedPageState extends State<FeedPage> {
       if (!mounted) return;
       setState(() {
         _allProjects = projects;
-        _techs = _collectTechs(projects);
+        _updateVisible();
+        _countTechs(projects);
+        _techs = _topTechs();
         _initialLoading = false;
       });
+      // 初回はスワイプ中ではないのですぐ展開してよい
       _precacheAround(0);
     } catch (e) {
       if (!mounted) return;
@@ -163,15 +186,18 @@ class _FeedPageState extends State<FeedPage> {
   /// 並び順を切り替えて読み直す。
   void _onOrderSelected(FeedOrder order) {
     if (order == _order) return;
+    _precacheTimer?.cancel();
     setState(() {
       _order = order;
       _allProjects = const [];
       _techs = const [];
+      _techCounts.clear();
       _selectedTech = null;
-      _currentIndex = 0;
+      _updateVisible();
       _loadedPages.clear();
       _lastPage = 1;
     });
+    _currentIndex.value = 0;
     _loadInitial();
   }
 
@@ -185,7 +211,10 @@ class _FeedPageState extends State<FeedPage> {
       final addedFrom = _allProjects.length;
       setState(() {
         _allProjects = [..._allProjects, ...projects];
-        _techs = _collectTechs(_allProjects);
+        _updateVisible();
+        // 増えた分だけ数え直す
+        _countTechs(projects);
+        _techs = _topTechs();
       });
       // 届いた時点で先頭の何件かを先読みしておき、
       // スワイプが追いついたときに読み込み待ちにならないようにする。
@@ -195,23 +224,26 @@ class _FeedPageState extends State<FeedPage> {
     }
   }
 
-  /// 出現回数の多い順に技術タグを集める。
-  List<String> _collectTechs(List<Project> projects) {
-    final counts = <String, int>{};
+  /// 追加された分の技術タグを数に足す。
+  void _countTechs(Iterable<Project> projects) {
     for (final project in projects) {
       for (final tech in project.techs) {
-        counts[tech] = (counts[tech] ?? 0) + 1;
+        _techCounts[tech] = (_techCounts[tech] ?? 0) + 1;
       }
     }
-    final techs = counts.keys.toList()
-      ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+  }
+
+  /// 出現回数の多い順に上位の技術タグを返す。
+  List<String> _topTechs() {
+    final techs = _techCounts.keys.toList()
+      ..sort((a, b) => _techCounts[b]!.compareTo(_techCounts[a]!));
     return techs.take(_maxTechChips).toList();
   }
 
   /// [index] の前後のサムネイルをImageCacheに先読みし、
   /// スワイプした瞬間に表示できるようにする。
   void _precacheAround(int index) {
-    _precacheRange(index - _precacheBehind, index + _precacheAhead, _projects);
+    _precacheRange(index - _precacheBehind, index + _precacheAhead, _visible);
   }
 
   /// [from] から [to] までのサムネイルをImageCacheに読み込んでおく。
@@ -225,15 +257,33 @@ class _FeedPageState extends State<FeedPage> {
       if (url.isEmpty) continue;
       if (_precached.add(url)) {
         // 先読み失敗は無視(表示時にerrorBuilderで処理される)
-        precacheImage(NetworkImage(url), context, onError: (_, __) {});
+        precacheImage(
+          thumbnailProvider(context, url),
+          context,
+          onError: (_, __) {},
+        );
       }
     }
   }
 
+  /// スワイプが落ち着いてから先読みする。
+  ///
+  /// precacheImage は名前に反してその場で画像を展開するので、
+  /// ページ送りの最中に呼ぶとそのフレームが落ちて引っかかりの原因になる。
+  /// 連続でスワイプされている間はタイマーが張り直されるため、
+  /// 通り過ぎるだけのページを展開してしまうことも防げる。
+  void _schedulePrecache(int index) {
+    _precacheTimer?.cancel();
+    _precacheTimer = Timer(_precacheDelay, () {
+      if (mounted) _precacheAround(index);
+    });
+  }
+
   void _onPageChanged(int index) {
-    setState(() => _currentIndex = index);
-    _precacheAround(index);
-    if (index >= _projects.length - _loadMoreThreshold) {
+    // シークバーだけ更新したいので、画面全体は作り直さない
+    _currentIndex.value = index;
+    _schedulePrecache(index);
+    if (index >= _visible.length - _loadMoreThreshold) {
       _loadMore();
     }
   }
@@ -247,8 +297,9 @@ class _FeedPageState extends State<FeedPage> {
   void _onTechSelected(String? tech) {
     setState(() {
       _selectedTech = tech;
-      _currentIndex = 0;
+      _updateVisible();
     });
+    _currentIndex.value = 0;
     if (_pageController.hasClients) {
       _pageController.jumpToPage(0);
     }
@@ -289,13 +340,17 @@ class _FeedPageState extends State<FeedPage> {
               showMockBadge: widget.usingMockData,
             ),
             Expanded(child: _buildBody()),
-            if (!_initialLoading && _error == null && _projects.isNotEmpty)
+            if (!_initialLoading && _error == null && _visible.isNotEmpty)
               SafeArea(
                 top: false,
-                child: FeedSeekBar(
-                  itemCount: _projects.length,
-                  currentIndex: _currentIndex.clamp(0, _projects.length - 1),
-                  onSeek: _seekTo,
+                // ページ送りで作り直すのはこの部分だけにする
+                child: ValueListenableBuilder<int>(
+                  valueListenable: _currentIndex,
+                  builder: (context, index, _) => FeedSeekBar(
+                    itemCount: _visible.length,
+                    currentIndex: index.clamp(0, _visible.length - 1),
+                    onSeek: _seekTo,
+                  ),
                 ),
               ),
           ],
@@ -312,7 +367,7 @@ class _FeedPageState extends State<FeedPage> {
     if (_error != null) {
       return _ErrorView(message: _error!, onRetry: _loadInitial);
     }
-    final projects = _projects;
+    final projects = _visible;
     if (projects.isEmpty) {
       return Center(
         child: Text('プロジェクトがありません', style: TextStyle(color: colors.muted)),

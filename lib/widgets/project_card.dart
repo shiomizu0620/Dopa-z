@@ -44,6 +44,22 @@ class ProjectCard extends StatelessWidget {
   }
 }
 
+/// サムネイルの画像プロバイダ。
+///
+/// topaz.dev のサムネイルは 2000px を超えるものがあり、そのまま展開すると
+/// 1枚で20MB以上のビットマップになってスワイプ中にフレームが落ちる。
+/// 表示幅に合わせて展開させることで、展開時間とメモリを数分の1に抑える。
+///
+/// 先読みと表示で同じ設定を使わないと別のキャッシュ扱いになり、
+/// 先読みが無駄になるので生成はここに集約する。
+ImageProvider thumbnailProvider(BuildContext context, String url) {
+  final logicalWidth = MediaQuery.sizeOf(context).width;
+  final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+  // 画面より小さくは落とさず、大画面でも上限を設けて展開が重くなりすぎないようにする
+  final cacheWidth = (logicalWidth * pixelRatio).round().clamp(360, 1440);
+  return ResizeImage(NetworkImage(url), width: cacheWidth);
+}
+
 class _Thumbnail extends StatelessWidget {
   const _Thumbnail({required this.url});
 
@@ -52,8 +68,8 @@ class _Thumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = TopazColors.of(context);
-    return Image.network(
-      url,
+    return Image(
+      image: thumbnailProvider(context, url),
       fit: BoxFit.contain,
       loadingBuilder: (context, child, progress) {
         if (progress == null) return child;
@@ -231,6 +247,9 @@ class _AuthorAvatar extends StatelessWidget {
             : Image.network(
                 avatarUrl,
                 fit: BoxFit.cover,
+                // 36ptの円にしか使わないので、その大きさで展開させる
+                cacheWidth: (_size * MediaQuery.devicePixelRatioOf(context))
+                    .round(),
                 errorBuilder: (context, error, stackTrace) => _fallback(),
               ),
       ),

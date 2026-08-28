@@ -66,6 +66,64 @@ void main() {
     expect(find.byTooltip('@jack のX'), findsNothing);
   });
 
+  group('サムネイルの展開サイズ', () {
+    /// 指定した画面サイズ・画素密度で thumbnailProvider を作る。
+    Future<ImageProvider> providerFor(
+      WidgetTester tester, {
+      required Size size,
+      required double pixelRatio,
+    }) async {
+      late ImageProvider provider;
+      await tester.pumpWidget(
+        MediaQuery(
+          data: MediaQueryData(size: size, devicePixelRatio: pixelRatio),
+          child: Builder(
+            builder: (context) {
+              provider = thumbnailProvider(
+                context,
+                'https://example.com/a.png',
+              );
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      return provider;
+    }
+
+    testWidgets('表示幅 x 画素密度で展開する', (WidgetTester tester) async {
+      final provider = await providerFor(
+        tester,
+        size: const Size(390, 844),
+        pixelRatio: 3,
+      );
+
+      // 実寸のまま展開させない (2000px超の画像が20MB級になるのを防ぐ)
+      expect(provider, isA<ResizeImage>());
+      expect((provider as ResizeImage).width, 1170);
+    });
+
+    testWidgets('大画面でも上限を超えない', (WidgetTester tester) async {
+      final provider = await providerFor(
+        tester,
+        size: const Size(2000, 1200),
+        pixelRatio: 2,
+      );
+
+      expect((provider as ResizeImage).width, 1440);
+    });
+
+    testWidgets('小さすぎる指定にはならない', (WidgetTester tester) async {
+      final provider = await providerFor(
+        tester,
+        size: const Size(200, 400),
+        pixelRatio: 1,
+      );
+
+      expect((provider as ResizeImage).width, 360);
+    });
+  });
+
   testWidgets('topazボタンはプロジェクトページを開く', (WidgetTester tester) async {
     final opened = await pumpCard(tester, _project());
 
