@@ -46,9 +46,10 @@ class DopazApp extends StatelessWidget {
       theme: TopazColors.light.toThemeData(Brightness.light),
       darkTheme: TopazColors.dark.toThemeData(Brightness.dark),
       themeMode: ThemeMode.system,
-      // topaz.dev の API は CORS ヘッダーを返さないため、ブラウザからは直接呼べない。
-      // Webでの開発プレビューではサンプルデータを表示する。
-      home: kIsWeb
+      // 本番Webは vercel.json の rewrite で同一オリジン経由になるので実APIを叩ける。
+      // ローカルの `flutter run -d chrome` にはその中継が無く直接呼ぶとCORSで
+      // 弾かれるため、デバッグビルドのWebだけサンプルデータを表示する。
+      home: kIsWeb && !kReleaseMode
           ? FeedPage(repository: MockFeedRepository(), usingMockData: true)
           : FeedPage(repository: FeedRepository()),
     );

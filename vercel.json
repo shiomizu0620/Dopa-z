@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo 'no install step'",
+  "buildCommand": "bash scripts/vercel_build.sh",
+  "outputDirectory": "build/web",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://topaz.dev/api/:path*"
+    },
+    {
+      "source": "/ptera/:path*",
+      "destination": "https://ptera-publish.topaz.dev/:path*"
+    }
+  ]
+}

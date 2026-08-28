@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
 import '../models/project.dart';
@@ -28,7 +29,13 @@ class FeedRepository implements ProjectFeed {
 
   final http.Client _client;
 
-  static final Uri _endpoint = Uri.parse('https://topaz.dev/api/projects');
+  /// APIの向き先。
+  ///
+  /// topaz.dev はCORSヘッダーを返さないため、ブラウザからは直接呼べない。
+  /// Webでは同一オリジンの `/api/` を経由する (vercel.json の rewrite)。
+  static final Uri _endpoint = kIsWeb
+      ? Uri.base.resolve('/api/projects')
+      : Uri.parse('https://topaz.dev/api/projects');
 
   @override
   Future<ProjectPage> fetchProjects({int page = 1}) async {
