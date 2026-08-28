@@ -42,14 +42,10 @@ class DopazApp extends StatelessWidget {
       scrollBehavior: AppScrollBehavior(),
       locale: DevicePreview.locale(context),
       builder: DevicePreview.appBuilder,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: TopazColors.cyan,
-          brightness: Brightness.light,
-        ),
-        scaffoldBackgroundColor: TopazColors.surface,
-        useMaterial3: true,
-      ),
+      // 端末のダークモード設定に追従する
+      theme: TopazColors.light.toThemeData(Brightness.light),
+      darkTheme: TopazColors.dark.toThemeData(Brightness.dark),
+      themeMode: ThemeMode.system,
       // topaz.dev の API は CORS ヘッダーを返さないため、ブラウザからは直接呼べない。
       // Webでの開発プレビューではサンプルデータを表示する。
       home: kIsWeb
