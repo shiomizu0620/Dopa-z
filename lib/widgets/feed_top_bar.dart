@@ -34,8 +34,9 @@ class FeedTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
     return ColoredBox(
-      color: TopazColors.surface,
+      color: colors.surface,
       child: SafeArea(
         bottom: false,
         child: Column(
@@ -82,7 +83,7 @@ class FeedTopBar extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
-            const Divider(height: 1, thickness: 1, color: TopazColors.border),
+            Divider(height: 1, thickness: 1, color: colors.border),
           ],
         ),
       ),
@@ -99,10 +100,11 @@ class _OrderToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
     return Container(
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
-        color: TopazColors.cyanSurface,
+        color: colors.cyanSurface,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -118,13 +120,13 @@ class _OrderToggle extends StatelessWidget {
                   vertical: 5,
                 ),
                 decoration: BoxDecoration(
-                  color: value == order ? TopazColors.cyan : Colors.transparent,
+                  color: value == order ? colors.cyan : Colors.transparent,
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Text(
                   value.label,
                   style: TextStyle(
-                    color: value == order ? Colors.white : TopazColors.deep,
+                    color: value == order ? colors.surface : colors.deep,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -143,16 +145,17 @@ class _MockBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: TopazColors.cyanSurface,
+        color: colors.cyanSurface,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: const Text(
+      child: Text(
         'SAMPLE',
         style: TextStyle(
-          color: TopazColors.deep,
+          color: colors.deep,
           fontSize: 10,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.5,
@@ -175,19 +178,20 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: selected ? TopazColors.cyan : TopazColors.cyanSurface,
+          color: selected ? colors.cyan : colors.cyanSurface,
           borderRadius: BorderRadius.circular(17),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : TopazColors.onSurface,
+            color: selected ? colors.surface : colors.onSurface,
             fontSize: 13,
             fontWeight: FontWeight.w600,
           ),

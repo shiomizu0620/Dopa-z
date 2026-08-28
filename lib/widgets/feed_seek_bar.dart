@@ -96,6 +96,7 @@ class _FeedSeekBarState extends State<FeedSeekBar> {
   }
 
   Widget _buildBar(double width, double value) {
+    final colors = TopazColors.of(context);
     final trackHeight = _dragging ? _trackHeightActive : _trackHeight;
     final knobSize = _dragging ? _knobSizeActive : _knobSize;
     final trackTop = (_hitHeight - trackHeight) / 2;
@@ -106,7 +107,7 @@ class _FeedSeekBarState extends State<FeedSeekBar> {
           left: 0,
           right: 0,
           top: trackTop,
-          child: Container(height: trackHeight, color: TopazColors.border),
+          child: Container(height: trackHeight, color: colors.border),
         ),
         Positioned(
           left: 0,
@@ -114,7 +115,7 @@ class _FeedSeekBarState extends State<FeedSeekBar> {
           child: Container(
             width: width * value,
             height: trackHeight,
-            color: TopazColors.cyan,
+            color: colors.cyan,
           ),
         ),
         Positioned(
@@ -123,8 +124,8 @@ class _FeedSeekBarState extends State<FeedSeekBar> {
           child: Container(
             width: knobSize,
             height: knobSize,
-            decoration: const BoxDecoration(
-              color: TopazColors.cyan,
+            decoration: BoxDecoration(
+              color: colors.cyan,
               shape: BoxShape.circle,
             ),
           ),

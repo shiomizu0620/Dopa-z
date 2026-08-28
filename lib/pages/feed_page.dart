@@ -270,11 +270,13 @@ class _FeedPageState extends State<FeedPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      // 背景が白なのでステータスバーの文字は暗い色にする
-      value: SystemUiOverlayStyle.dark,
+      // ステータスバーの文字色を背景と反対にする
+      value: isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       child: Scaffold(
-        backgroundColor: TopazColors.surface,
+        backgroundColor: colors.surface,
         body: Column(
           children: [
             // 上部のセーフエリアは FeedTopBar が確保する
@@ -303,18 +305,17 @@ class _FeedPageState extends State<FeedPage> {
   }
 
   Widget _buildBody() {
+    final colors = TopazColors.of(context);
     if (_initialLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: TopazColors.cyan),
-      );
+      return Center(child: CircularProgressIndicator(color: colors.cyan));
     }
     if (_error != null) {
       return _ErrorView(message: _error!, onRetry: _loadInitial);
     }
     final projects = _projects;
     if (projects.isEmpty) {
-      return const Center(
-        child: Text('プロジェクトがありません', style: TextStyle(color: TopazColors.muted)),
+      return Center(
+        child: Text('プロジェクトがありません', style: TextStyle(color: colors.muted)),
       );
     }
     return PageView.builder(
@@ -339,23 +340,27 @@ class _ErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off, color: TopazColors.border, size: 56),
+            Icon(Icons.cloud_off, color: colors.border, size: 56),
             const SizedBox(height: 16),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: TopazColors.muted, fontSize: 14),
+              style: TextStyle(color: colors.muted, fontSize: 14),
             ),
             const SizedBox(height: 20),
             FilledButton(
               onPressed: onRetry,
-              style: FilledButton.styleFrom(backgroundColor: TopazColors.cyan),
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.cyan,
+                foregroundColor: colors.surface,
+              ),
               child: const Text('再読み込み'),
             ),
           ],

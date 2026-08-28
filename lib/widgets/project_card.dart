@@ -51,18 +51,17 @@ class _Thumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
     return Image.network(
       url,
       fit: BoxFit.contain,
       loadingBuilder: (context, child, progress) {
         if (progress == null) return child;
-        return const Center(
-          child: CircularProgressIndicator(color: TopazColors.cyan),
-        );
+        return Center(child: CircularProgressIndicator(color: colors.cyan));
       },
       errorBuilder: (context, error, stackTrace) {
-        return const Center(
-          child: Icon(Icons.broken_image, color: TopazColors.border, size: 64),
+        return Center(
+          child: Icon(Icons.broken_image, color: colors.border, size: 64),
         );
       },
     );
@@ -78,6 +77,7 @@ class _ProjectInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       child: Column(
@@ -100,8 +100,8 @@ class _ProjectInfo extends StatelessWidget {
                       project.authorName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: TopazColors.onSurface,
+                      style: TextStyle(
+                        color: colors.onSurface,
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                       ),
@@ -110,10 +110,7 @@ class _ProjectInfo extends StatelessWidget {
                       '@${project.authorUserName}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: TopazColors.muted,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: colors.muted, fontSize: 12),
                     ),
                   ],
                 ),
@@ -126,8 +123,8 @@ class _ProjectInfo extends StatelessWidget {
             project.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: TopazColors.onSurface,
+            style: TextStyle(
+              color: colors.onSurface,
               fontSize: 16,
               fontWeight: FontWeight.w700,
               height: 1.3,
@@ -138,8 +135,8 @@ class _ProjectInfo extends StatelessWidget {
             project.techs.map((t) => '#${t.replaceAll(' ', '')}').join(' '),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: TopazColors.cyan,
+            style: TextStyle(
+              color: colors.cyan,
               fontSize: 13,
               fontWeight: FontWeight.w600,
             ),
@@ -207,7 +204,7 @@ class _SocialIcon extends StatelessWidget {
           child: FaIcon(
             icon,
             size: 18,
-            color: TopazColors.onSurface.withValues(alpha: 0.7),
+            color: TopazColors.of(context).onSurface.withValues(alpha: 0.7),
           ),
         ),
       ),
@@ -316,7 +313,7 @@ void showTopazOnly(BuildContext context, String label, VoidCallback onOpen) {
         behavior: SnackBarBehavior.floating,
         action: SnackBarAction(
           label: '開く',
-          textColor: TopazColors.cyan,
+          textColor: TopazColors.of(context).cyan,
           onPressed: onOpen,
         ),
       ),
@@ -338,12 +335,13 @@ class _RailButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // サムネイルの上にも白い余白の上にも乗るので、白い縁取りで浮かせる
+    // サムネイルの上にも余白の上にも乗るので、背景色の縁取りで浮かせる
+    final colors = TopazColors.of(context);
     Widget iconWidget = Icon(
       icon,
-      color: TopazColors.onSurface,
+      color: colors.onSurface,
       size: 28,
-      shadows: topazGlowShadows,
+      shadows: colors.glowShadows,
     );
     if (flipHorizontally) {
       iconWidget = Transform.scale(scaleX: -1, child: iconWidget);
@@ -359,11 +357,11 @@ class _RailButton extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               label,
-              style: const TextStyle(
-                color: TopazColors.onSurface,
+              style: TextStyle(
+                color: colors.onSurface,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                shadows: topazGlowShadows,
+                shadows: colors.glowShadows,
               ),
             ),
           ],

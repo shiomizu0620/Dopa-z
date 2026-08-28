@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:dopaz/models/project.dart';
 import 'package:dopaz/pages/feed_page.dart';
 import 'package:dopaz/repositories/feed_repository.dart';
+import 'package:dopaz/theme.dart';
 import 'package:dopaz/widgets/dopaz_logo.dart';
 import 'package:dopaz/widgets/feed_seek_bar.dart';
 import 'package:flutter/material.dart';
@@ -140,11 +141,17 @@ void main() {
     WidgetTester tester,
     ProjectFeed feed, {
     Random? random,
+    Brightness brightness = Brightness.light,
   }) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       MaterialApp(
+        theme: TopazColors.light.toThemeData(Brightness.light),
+        darkTheme: TopazColors.dark.toThemeData(Brightness.dark),
+        themeMode: brightness == Brightness.dark
+            ? ThemeMode.dark
+            : ThemeMode.light,
         home: FeedPage(repository: feed, random: random ?? _NoShuffle()),
       ),
     );
@@ -321,6 +328,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(feed.requestedPages, [1, 3, 1, 2]);
+  });
+
+  testWidgets('ダークモードでも同じ内容が表示される', (WidgetTester tester) async {
+    await pumpFeed(tester, _FakeFeed([_page1()]), brightness: Brightness.dark);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DopazLogo), findsOneWidget);
+    expect(find.text('@akubi'), findsOneWidget);
+    expect(find.text('5.7万'), findsOneWidget);
+
+    // 背景がダークのパレットになっている
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+    expect(scaffold.backgroundColor, TopazColors.dark.surface);
   });
 
   testWidgets('並び順のトグルは現在の選択を示す', (WidgetTester tester) async {

@@ -12,6 +12,7 @@ class DopazLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
     return Semantics(
       label: 'dopaz',
       child: Row(
@@ -21,10 +22,10 @@ class DopazLogo extends StatelessWidget {
             width: markSize,
             height: markSize,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
+              gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [TopazColors.cyanLight, TopazColors.cyan],
+                colors: [colors.cyanLight, colors.cyan],
               ),
               // 右上だけ角を残した円
               borderRadius: BorderRadius.only(
@@ -42,7 +43,7 @@ class DopazLogo extends StatelessWidget {
                 TextSpan(
                   text: "'",
                   style: TextStyle(
-                    color: TopazColors.cyan,
+                    color: colors.cyan,
                     fontSize: fontSize * 1.1,
                   ),
                 ),
@@ -50,7 +51,7 @@ class DopazLogo extends StatelessWidget {
               ],
             ),
             style: TextStyle(
-              color: TopazColors.deep,
+              color: colors.deep,
               fontSize: fontSize,
               fontWeight: FontWeight.w800,
               letterSpacing: -0.5,
