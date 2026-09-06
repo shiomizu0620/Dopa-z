@@ -1,4 +1,7 @@
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../models/project.dart';
@@ -44,11 +47,32 @@ class ProjectCard extends StatelessWidget {
   }
 }
 
+/// サムネイル画像のディスクキャッシュ。
+///
+/// 配信元は `max-age=2592000` (30日) を返すが、ネイティブの [NetworkImage] は
+/// `dart:io` の HttpClient を直接叩くのでこれが保存されず、
+/// アプリを起動し直すたびに1ページ12件・約9.5MBを取り直していた。
+/// ディスクに残すことで、2回目以降の起動では配信元に取りに行かなくて済む。
+///
+/// 既定 (200件 / 30日) のままだと平均0.79MBのサムネイルで約160MBまで膨らみ、
+/// 端末のストレージを圧迫する。1ページ12件なので150件あれば
+/// 12ページ分ほどさかのぼれて、1セッションの体感には十分に効く。
+/// 期間も、同じプロジェクトを何日も見返す使い方ではないので7日に縮める。
+final thumbnailCacheManager = CacheManager(
+  Config(
+    'dopazThumbnails',
+    stalePeriod: const Duration(days: 7),
+    maxNrOfCacheObjects: 150,
+  ),
+);
+
 /// サムネイルの画像プロバイダ。
 ///
 /// topaz.dev のサムネイルは 2000px を超えるものがあり、そのまま展開すると
 /// 1枚で20MB以上のビットマップになってスワイプ中にフレームが落ちる。
 /// 表示幅に合わせて展開させることで、展開時間とメモリを数分の1に抑える。
+/// ([ResizeImage] が減らすのは展開後のビットマップだけで、
+/// 通信量には効かない。そちらは [thumbnailCacheManager] が受け持つ。)
 ///
 /// 先読みと表示で同じ設定を使わないと別のキャッシュ扱いになり、
 /// 先読みが無駄になるので生成はここに集約する。
@@ -57,7 +81,25 @@ ImageProvider thumbnailProvider(BuildContext context, String url) {
   final pixelRatio = MediaQuery.devicePixelRatioOf(context);
   // 画面より小さくは落とさず、大画面でも上限を設けて展開が重くなりすぎないようにする
   final cacheWidth = (logicalWidth * pixelRatio).round().clamp(360, 1440);
-  return ResizeImage(NetworkImage(url), width: cacheWidth);
+  return ResizeImage(_networkImage(url), width: cacheWidth);
+}
+
+/// 作者アバターの画像プロバイダ。サムネイルと同じキャッシュに乗せる。
+/// [size] は表示する論理サイズ。
+ImageProvider avatarProvider(BuildContext context, String url, double size) {
+  final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+  return ResizeImage(_networkImage(url), width: (size * pixelRatio).round());
+}
+
+/// 画像の取得元。
+///
+/// Web ではブラウザが `Cache-Control` を見て勝手にディスクキャッシュするので
+/// 自前のキャッシュは要らない。むしろ Web の画像URLは `/ptera/...` という
+/// 同一オリジンの相対パス ([Project.assetBaseUrl]) で、
+/// 絶対URLを前提とする flutter_cache_manager には渡せない。
+ImageProvider _networkImage(String url) {
+  if (kIsWeb) return NetworkImage(url);
+  return CachedNetworkImageProvider(url, cacheManager: thumbnailCacheManager);
 }
 
 class _Thumbnail extends StatelessWidget {
@@ -244,12 +286,10 @@ class _AuthorAvatar extends StatelessWidget {
         height: _size,
         child: avatarUrl.isEmpty
             ? _fallback()
-            : Image.network(
-                avatarUrl,
-                fit: BoxFit.cover,
+            : Image(
                 // 36ptの円にしか使わないので、その大きさで展開させる
-                cacheWidth: (_size * MediaQuery.devicePixelRatioOf(context))
-                    .round(),
+                image: avatarProvider(context, avatarUrl, _size),
+                fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) => _fallback(),
               ),
       ),
