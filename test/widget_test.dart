@@ -97,6 +97,29 @@ ProjectPage _singleItemPage({
   });
 }
 
+/// 同じ技術タグだけを持つプロジェクトを並べたページ。
+ProjectPage _techPage({
+  required int number,
+  required int lastPage,
+  required String tech,
+  required List<String> ids,
+}) {
+  return ProjectPage.fromJson({
+    'current_page': number,
+    'last_page': lastPage,
+    'data': [
+      for (final id in ids)
+        _projectJson(
+          id: id,
+          title: '$id のプロジェクト',
+          displayName: id,
+          userName: id,
+          techs: [tech],
+        ),
+    ],
+  });
+}
+
 /// 固定のページを返すテスト用のフィード。
 class _FakeFeed implements ProjectFeed {
   _FakeFeed(this.pages);
@@ -133,6 +156,16 @@ class _FailingFeed implements ProjectFeed {
     calls++;
     throw const FeedException('通信に失敗しました');
   }
+}
+
+/// Swift は1ページ目の2件だけで、残りのページはすべて Go というフィード。
+/// Swift で絞り込むと、何ページ読んでも表示が増えない状況を再現できる。
+_FakeFeed _sparseTagFeed({int lastPage = 10}) {
+  return _FakeFeed([
+    _techPage(number: 1, lastPage: lastPage, tech: 'Swift', ids: ['s1', 's2']),
+    for (var page = 2; page <= lastPage; page++)
+      _techPage(number: page, lastPage: lastPage, tech: 'Go', ids: ['g$page']),
+  ]);
 }
 
 void main() {
@@ -364,6 +397,88 @@ void main() {
     // 同じインスタンスのままなら、ページ送りで画面全体を作り直していない
     final after = tester.widget<FeedTopBar>(find.byType(FeedTopBar));
     expect(identical(before, after), isTrue);
+  });
+
+  /// 縦スワイプ1回分。[back] なら前のカードへ戻る。
+  Future<void> swipe(WidgetTester tester, {bool back = false}) async {
+    await tester.fling(
+      find.byType(PageView),
+      Offset(0, back ? 400 : -400),
+      1000,
+    );
+    await tester.pumpAndSettle();
+  }
+
+  /// Swift で絞り込んだ状態にする。1ページ目の2件だけが残る。
+  Future<_FakeFeed> pumpFilteredToSwift(WidgetTester tester) async {
+    final feed = _sparseTagFeed();
+    await pumpFeed(tester, feed);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Swift'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('@s1'), findsOneWidget);
+    return feed;
+  }
+
+  testWidgets('絞り込み中に空振りが続いたら読み込みを止める', (WidgetTester tester) async {
+    final feed = await pumpFilteredToSwift(tester);
+
+    // 初回の2ページ (1ページ目 + ランダムに1ページ)
+    expect(feed.requestedPages, hasLength(2));
+
+    // 表示は2件しかないので、スワイプするたびに追加読み込みの条件が成立する。
+    // 該当が増えないまま3回空振りしたら自動取得をあきらめる。
+    await swipe(tester);
+    await swipe(tester, back: true);
+    await swipe(tester);
+    expect(feed.requestedPages, hasLength(5));
+
+    // 止まったことが分かる案内が末尾に出る
+    await swipe(tester);
+    expect(find.text('これ以上見つかりませんでした'), findsOneWidget);
+
+    // ここから先は何度スワイプしてもリクエストは増えない
+    await swipe(tester, back: true);
+    await swipe(tester);
+    await swipe(tester, back: true);
+    expect(feed.requestedPages, hasLength(5));
+  });
+
+  testWidgets('止めたあとも「もっと読む」なら読みに行ける', (WidgetTester tester) async {
+    final feed = await pumpFilteredToSwift(tester);
+
+    await swipe(tester);
+    await swipe(tester, back: true);
+    await swipe(tester);
+    await swipe(tester);
+    expect(feed.requestedPages, hasLength(5));
+
+    // 手動なら何度でも押せる
+    await tester.tap(find.text('もっと読む'));
+    await tester.pumpAndSettle();
+    expect(feed.requestedPages, hasLength(6));
+
+    await tester.tap(find.text('もっと読む'));
+    await tester.pumpAndSettle();
+    expect(feed.requestedPages, hasLength(7));
+  });
+
+  testWidgets('絞り込み中に見えないカードの画像を先読みしない', (WidgetTester tester) async {
+    final precached = <String>[];
+    debugOnPrecache = precached.add;
+    addTearDown(() => debugOnPrecache = null);
+
+    await pumpFilteredToSwift(tester);
+    // 表示中の2件はこの時点で温まっている
+    precached.clear();
+
+    // スワイプで追加読み込みが走るが、届くのは Go のカードだけ。
+    // 絞り込みで落ちて画面に出ないものを温めても無駄なので、何も増えない。
+    await swipe(tester);
+
+    expect(precached, isEmpty);
   });
 
   testWidgets('取得に失敗したら再読み込みできる', (WidgetTester tester) async {

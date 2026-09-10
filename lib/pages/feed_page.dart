@@ -60,6 +60,23 @@ class _FeedPageState extends State<FeedPage> {
   /// スワイプが止まってから先読みを始めるまでの待ち時間。
   static const _precacheDelay = Duration(milliseconds: 250);
 
+  /// 追加読み込みが空振り (表示が1件も増えない) してよい回数。
+  ///
+  /// 絞り込み中は [_loadMoreThreshold] の判定が絞り込み後の件数で行われるので、
+  /// 該当の少ないタグでは条件が成立したままになり、スワイプのたびに
+  /// 1リクエスト飛ぶ。1セッションの上限は90ページ (約855MB) にもなるので、
+  /// 空振りが続いたら自動取得はあきらめて手動の「もっと読む」に任せる。
+  static const _maxEmptyLoadMore = 3;
+
+  /// 先読み済みとして覚えておくURLの上限。
+  ///
+  /// ImageCache はメモリが埋まると古いものから追い出すので、ここに残って
+  /// いても実体があるとは限らない。無制限に覚えていると
+  /// 「先読みはもう走らないのに、表示時には読み直す」という一番損な状態が
+  /// 増え続けるため、古いものから落として上限のある状態にする。
+  /// 1ページ12件なので、300件あれば直近25ページ分をカバーできる。
+  static const _maxPrecachedUrls = 300;
+
   late final Random _random = widget.random ?? Random();
   late FeedOrder _order = widget.initialOrder;
 
@@ -85,6 +102,23 @@ class _FeedPageState extends State<FeedPage> {
   final Set<int> _loadedPages = {};
   int _lastPage = 1;
   bool _loadingMore = false;
+
+  /// 「もっと読む」で取得中か。ボタンの見た目にしか使わない。
+  bool _manualLoading = false;
+
+  /// 追加読み込みしたのに [_visible] が1件も増えなかった回数。
+  /// 絞り込みや並び順を変えたら数え直す。
+  int _emptyLoadMore = 0;
+
+  /// 自動の追加読み込みを止めているか。
+  bool get _autoLoadStopped => _emptyLoadMore >= _maxEmptyLoadMore;
+
+  /// 読み直しの世代。
+  ///
+  /// 並び順を素早く切り替えると [_loadInitial] が並行して走り、遅れて返って
+  /// きた古い方が新しい方の結果を上書きしてしまう。開始時の世代と一致しない
+  /// 結果は捨てることで、最後に始めた読み込みだけが画面に反映される。
+  int _loadGeneration = 0;
 
   final Set<String> _precached = {};
   Timer? _precacheTimer;
@@ -114,6 +148,7 @@ class _FeedPageState extends State<FeedPage> {
   }
 
   Future<void> _loadInitial() async {
+    final generation = ++_loadGeneration;
     setState(() {
       _initialLoading = true;
       _error = null;
@@ -121,6 +156,7 @@ class _FeedPageState extends State<FeedPage> {
     try {
       // APIに並び替えの指定が無いので、まず1ページ目を取って総ページ数を知る。
       final first = await widget.repository.fetchProjects(page: 1);
+      if (!_isCurrent(generation)) return;
       _loadedPages.add(first.currentPage);
       _lastPage = first.lastPage;
 
@@ -129,10 +165,10 @@ class _FeedPageState extends State<FeedPage> {
         // 1ページ目 (新着) だけに偏らないよう、全体からもう1ページ混ぜる。
         // ここで2ページ分持っておくと、最初の追加読み込みまでの余裕もできる。
         projects.addAll(await _fetchNextPage() ?? const []);
+        if (!_isCurrent(generation)) return;
         projects.shuffle(_random);
       }
 
-      if (!mounted) return;
       setState(() {
         _allProjects = projects;
         _updateVisible();
@@ -143,7 +179,7 @@ class _FeedPageState extends State<FeedPage> {
       // 初回はスワイプ中ではないのですぐ展開してよい
       _precacheAround(0);
     } catch (e) {
-      if (!mounted) return;
+      if (!_isCurrent(generation)) return;
       setState(() {
         _error = e is FeedException ? e.message : '$e';
         _initialLoading = false;
@@ -151,13 +187,20 @@ class _FeedPageState extends State<FeedPage> {
     }
   }
 
+  /// [generation] で始めた読み込みの結果を、まだ画面に反映してよいか。
+  bool _isCurrent(int generation) => mounted && generation == _loadGeneration;
+
   /// まだ読んでいないページを1つ取る。
   /// 全ページ読み終わっている、または失敗した場合は null。
   Future<List<Project>?> _fetchNextPage() async {
+    final generation = _loadGeneration;
     final page = _pickUnloadedPage();
     if (page == null) return null;
     try {
       final result = await widget.repository.fetchProjects(page: page);
+      // 待っている間に読み直しが始まっていたら、取得済みページや総ページ数を
+      // 書き戻すと新しい方の状態が壊れるので、結果ごと捨てる。
+      if (generation != _loadGeneration) return null;
       _loadedPages.add(result.currentPage);
       _lastPage = result.lastPage;
       final projects = result.projects.toList();
@@ -194,6 +237,7 @@ class _FeedPageState extends State<FeedPage> {
       _techCounts.clear();
       _selectedTech = null;
       _updateVisible();
+      _emptyLoadMore = 0;
       _loadedPages.clear();
       _lastPage = 1;
     });
@@ -208,20 +252,44 @@ class _FeedPageState extends State<FeedPage> {
     try {
       final projects = await _fetchNextPage();
       if (projects == null || projects.isEmpty || !mounted) return;
-      final addedFrom = _allProjects.length;
+      final visibleBefore = _visible.length;
       setState(() {
         _allProjects = [..._allProjects, ...projects];
         _updateVisible();
         // 増えた分だけ数え直す
         _countTechs(projects);
         _techs = _topTechs();
+        // 絞り込みに1件も引っかからなければ空振り。
+        // 続くようなら _autoLoadStopped で自動取得を止める。
+        _emptyLoadMore = _visible.length == visibleBefore
+            ? _emptyLoadMore + 1
+            : 0;
       });
       // 届いた時点で先頭の何件かを先読みしておき、
       // スワイプが追いついたときに読み込み待ちにならないようにする。
-      _precacheRange(addedFrom, addedFrom + _precacheOnArrival);
+      // 絞り込みで落ちたカードはユーザーの目に触れないので、
+      // 数える位置は _allProjects ではなく _visible の末尾。
+      _precacheRange(
+        visibleBefore,
+        visibleBefore + _precacheOnArrival,
+        _visible,
+      );
     } finally {
       _loadingMore = false;
     }
+  }
+
+  /// 「もっと読む」を押されたとき。
+  ///
+  /// 空振りが続いて自動取得を止めていても、押された分は取りに行く。
+  /// 空振りの回数はここでは戻さないので、押しても見つからなければ案内は
+  /// 出たままになり、見つかれば [_loadMore] 側で 0 に戻って自動取得が再開する。
+  Future<void> _loadMoreManually() async {
+    if (_loadingMore) return;
+    setState(() => _manualLoading = true);
+    await _loadMore();
+    if (!mounted) return;
+    setState(() => _manualLoading = false);
   }
 
   /// 追加された分の技術タグを数に足す。
@@ -249,13 +317,15 @@ class _FeedPageState extends State<FeedPage> {
   /// [from] から [to] までのサムネイルをImageCacheに読み込んでおく。
   void _precacheRange(int from, int to, [List<Project>? source]) {
     final projects = source ?? _allProjects;
-    if (projects.isEmpty) return;
+    // 範囲がまるごと末尾より後ろなら、末尾を温め直すだけになるので何もしない
+    if (projects.isEmpty || from >= projects.length) return;
     final start = from.clamp(0, projects.length - 1);
     final end = to.clamp(0, projects.length - 1);
     for (var i = start; i <= end; i++) {
       final url = projects[i].thumbnailUrl;
       if (url.isEmpty) continue;
-      if (_precached.add(url)) {
+      if (_rememberPrecached(url)) {
+        debugOnPrecache?.call(url);
         // 先読み失敗は無視(表示時にerrorBuilderで処理される)
         precacheImage(
           thumbnailProvider(context, url),
@@ -264,6 +334,17 @@ class _FeedPageState extends State<FeedPage> {
         );
       }
     }
+  }
+
+  /// [url] を先読み済みとして覚える。既に覚えていれば false。
+  ///
+  /// Set は挿入順を保つので、あふれた分は古い方から落とせる。
+  bool _rememberPrecached(String url) {
+    if (!_precached.add(url)) return false;
+    while (_precached.length > _maxPrecachedUrls) {
+      _precached.remove(_precached.first);
+    }
+    return true;
   }
 
   /// スワイプが落ち着いてから先読みする。
@@ -283,7 +364,9 @@ class _FeedPageState extends State<FeedPage> {
     // シークバーだけ更新したいので、画面全体は作り直さない
     _currentIndex.value = index;
     _schedulePrecache(index);
-    if (index >= _visible.length - _loadMoreThreshold) {
+    // 空振りが続いているときは、スワイプのたびに無駄なリクエストを
+    // 出し続けることになるので、あとは手動の「もっと読む」に任せる。
+    if (!_autoLoadStopped && index >= _visible.length - _loadMoreThreshold) {
       _loadMore();
     }
   }
@@ -298,6 +381,8 @@ class _FeedPageState extends State<FeedPage> {
     setState(() {
       _selectedTech = tech;
       _updateVisible();
+      // 絞り込みが変われば空振りの意味も変わるので数え直す
+      _emptyLoadMore = 0;
     });
     _currentIndex.value = 0;
     if (_pageController.hasClients) {
@@ -373,16 +458,72 @@ class _FeedPageState extends State<FeedPage> {
         child: Text('プロジェクトがありません', style: TextStyle(color: colors.muted)),
       );
     }
+    // 自動取得を止めたことがユーザーに伝わるよう、末尾に1枚だけ差し込む
+    final tail = _autoLoadStopped ? 1 : 0;
     return PageView.builder(
       controller: _pageController,
       scrollDirection: Axis.vertical,
       allowImplicitScrolling: true,
-      itemCount: projects.length,
+      itemCount: projects.length + tail,
       onPageChanged: _onPageChanged,
       itemBuilder: (context, index) {
+        if (index >= projects.length) {
+          return _NoMoreView(
+            loading: _manualLoading,
+            onLoadMore: _loadMoreManually,
+          );
+        }
         final project = projects[index];
         return ProjectCard(project: project, onOpenUrl: _openUrl);
       },
+    );
+  }
+}
+
+/// 絞り込み中に自動取得を止めたときに、フィードの末尾に出す案内。
+class _NoMoreView extends StatelessWidget {
+  const _NoMoreView({required this.loading, required this.onLoadMore});
+
+  final bool loading;
+  final VoidCallback onLoadMore;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off, color: colors.border, size: 56),
+            const SizedBox(height: 16),
+            Text(
+              'これ以上見つかりませんでした',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: colors.muted, fontSize: 14),
+            ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: loading ? null : onLoadMore,
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.cyan,
+                foregroundColor: colors.surface,
+              ),
+              child: loading
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: colors.surface,
+                      ),
+                    )
+                  : const Text('もっと読む'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -424,3 +565,10 @@ class _ErrorView extends StatelessWidget {
     );
   }
 }
+
+/// 先読みを開始したサムネイルURLの通知先。
+///
+/// 「絞り込みで見えなくなったカードを先読みしていないか」は外からは
+/// 観測しようがないので、回帰テストのためだけにここを開けている。
+@visibleForTesting
+void Function(String url)? debugOnPrecache;
