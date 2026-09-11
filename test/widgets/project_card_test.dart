@@ -22,8 +22,11 @@ void main() {
   /// 開こうとしたURLを集めながらカードを描画する。
   Future<List<String>> pumpCard(WidgetTester tester, Project project) async {
     final opened = <String>[];
-    await tester.binding.setSurfaceSize(const Size(390, 844));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    // setSurfaceSize だけだと MediaQuery に伝わらず、
+    // 展開サイズの計算が実際のレイアウト幅とずれる
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -103,14 +106,26 @@ void main() {
       expect((provider as ResizeImage).width, 1170);
     });
 
-    testWidgets('大画面でも上限を超えない', (WidgetTester tester) async {
+    testWidgets('画素密度が高くても上限を超えない', (WidgetTester tester) async {
       final provider = await providerFor(
         tester,
-        size: const Size(2000, 1200),
-        pixelRatio: 2,
+        // スマホ幅のままいちばん大きい部類 (幅いっぱいに使う)
+        size: const Size(700, 900),
+        pixelRatio: 3,
       );
 
       expect((provider as ResizeImage).width, 1440);
+    });
+
+    testWidgets('広い画面では中央のステージの幅に合わせる', (WidgetTester tester) async {
+      final provider = await providerFor(
+        tester,
+        size: const Size(1600, 1000),
+        pixelRatio: 2,
+      );
+
+      // 画面幅ではなくステージの幅 (440) を使うので、1600px 分は展開しない
+      expect((provider as ResizeImage).width, 880);
     });
 
     testWidgets('小さすぎる指定にはならない', (WidgetTester tester) async {

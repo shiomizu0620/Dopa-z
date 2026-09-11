@@ -4,10 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
+import '../layout.dart';
 import '../models/project.dart';
 import '../theme.dart';
 
-/// フィード1ページ分。サムネイルの下に作者情報、右下にアクションを置く。
+/// フィード1ページ分。狭い画面ではサムネイルの下に作者情報、右下にアクション。
 ///
 /// いいねのような書き込み操作は topaz.dev 側の機能なので、
 /// このアプリでは件数を表示するだけで実行はできない。
@@ -16,12 +17,19 @@ class ProjectCard extends StatelessWidget {
     super.key,
     required this.project,
     required this.onOpenUrl,
+    this.showChrome = true,
   });
 
   final Project project;
 
   /// 外部ブラウザで開くURLを受け取る。
   final ValueChanged<String> onOpenUrl;
+
+  /// アクション列と作者情報をカードの中に入れるか。
+  ///
+  /// 広い画面ではどちらもステージの外 (右隣と左隣) に置くので、
+  /// カードはサムネイル1枚だけになる。
+  final bool showChrome;
 
   @override
   Widget build(BuildContext context) {
@@ -33,15 +41,19 @@ class ProjectCard extends StatelessWidget {
             children: [
               Positioned.fill(child: _Thumbnail(url: project.thumbnailUrl)),
               // Shorts と同じくサムネイル右下に縦並びで置く
-              Positioned(
-                right: 6,
-                bottom: 8,
-                child: _ActionRail(project: project, onOpenUrl: onOpenUrl),
-              ),
+              if (showChrome)
+                Positioned(
+                  right: 6,
+                  bottom: 8,
+                  child: ProjectActionRail(
+                    project: project,
+                    onOpenUrl: onOpenUrl,
+                  ),
+                ),
             ],
           ),
         ),
-        _ProjectInfo(project: project, onOpenUrl: onOpenUrl),
+        if (showChrome) ProjectInfo(project: project, onOpenUrl: onOpenUrl),
       ],
     );
   }
@@ -77,7 +89,9 @@ final thumbnailCacheManager = CacheManager(
 /// 先読みと表示で同じ設定を使わないと別のキャッシュ扱いになり、
 /// 先読みが無駄になるので生成はここに集約する。
 ImageProvider thumbnailProvider(BuildContext context, String url) {
-  final logicalWidth = MediaQuery.sizeOf(context).width;
+  // 広い画面では画面幅ではなくステージの幅しか使わないので、
+  // 画面幅で展開すると見えない解像度のぶんだけ展開時間とメモリを損する。
+  final logicalWidth = feedWidth(context);
   final pixelRatio = MediaQuery.devicePixelRatioOf(context);
   // 画面より小さくは落とさず、大画面でも上限を設けて展開が重くなりすぎないようにする
   final cacheWidth = (logicalWidth * pixelRatio).round().clamp(360, 1440);
@@ -102,6 +116,20 @@ ImageProvider _networkImage(String url) {
   return CachedNetworkImageProvider(url, cacheManager: thumbnailCacheManager);
 }
 
+/// 背景に敷く画像を展開する大きさ。
+///
+/// この幅から画面いっぱいまで引き伸ばすと、補間だけで十分にぼやける。
+/// [ImageFilter.blur] を使うと毎フレーム画面ぶんのぼかしがかかり、
+/// スワイプ中のフレーム落ちにつながるので、拡大で代わりにする。
+const int _backdropWidth = 24;
+
+/// 余白を埋めるために敷く画像。
+///
+/// 通信もキャッシュもサムネイル本体と同じURL・同じ取得元なので、
+/// 増えるのは小さく展開する手間だけで、取り直しにはならない。
+ImageProvider _backdropProvider(String url) =>
+    ResizeImage(_networkImage(url), width: _backdropWidth);
+
 class _Thumbnail extends StatelessWidget {
   const _Thumbnail({required this.url});
 
@@ -110,34 +138,85 @@ class _Thumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = TopazColors.of(context);
-    return Image(
-      image: thumbnailProvider(context, url),
-      fit: BoxFit.contain,
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
-        return Center(child: CircularProgressIndicator(color: colors.cyan));
-      },
-      errorBuilder: (context, error, stackTrace) {
-        return Center(
-          child: Icon(Icons.broken_image, color: colors.border, size: 64),
-        );
-      },
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _Backdrop(url: url),
+        Image(
+          image: thumbnailProvider(context, url),
+          // スクリーンショットなので、切らずに全体を見せる
+          fit: BoxFit.contain,
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return Center(child: CircularProgressIndicator(color: colors.cyan));
+          },
+          errorBuilder: (context, error, stackTrace) {
+            return Center(
+              child: Icon(Icons.broken_image, color: colors.border, size: 64),
+            );
+          },
+        ),
+      ],
     );
   }
 }
 
-/// サムネイル下の作者・タイトル・技術タグ。
-class _ProjectInfo extends StatelessWidget {
-  const _ProjectInfo({required this.project, required this.onOpenUrl});
+/// サムネイルの縦横比が画面に合わないときにできる余白。
+///
+/// 単色で埋めると画像だけが切り抜かれたように浮くので、同じ画像をごく小さく
+/// 展開して引き伸ばしたものを敷き、その上から背景色をかぶせて主張を抑える。
+class _Backdrop extends StatelessWidget {
+  const _Backdrop({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
+    return ColoredBox(
+      color: colors.surface,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image(
+            image: _backdropProvider(url),
+            fit: BoxFit.cover,
+            // 引き伸ばしたときに四角が見えないよう、補間を効かせる
+            filterQuality: FilterQuality.medium,
+            // 読めなければ背景色のままでよい
+            errorBuilder: (context, error, stackTrace) =>
+                const SizedBox.shrink(),
+          ),
+          // 前に来るサムネイルと文字を邪魔しない程度まで薄める
+          ColoredBox(color: colors.surface.withValues(alpha: 0.7)),
+        ],
+      ),
+    );
+  }
+}
+
+/// 作者・タイトル・技術タグ。
+///
+/// 狭い画面ではサムネイルの下、広い画面ではステージの左隣に置く。
+class ProjectInfo extends StatelessWidget {
+  const ProjectInfo({
+    super.key,
+    required this.project,
+    required this.onOpenUrl,
+    this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 14),
+  });
 
   final Project project;
   final ValueChanged<String> onOpenUrl;
+
+  /// 文字の周りに空ける余白。置く場所に合わせて外から決める。
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
     final colors = TopazColors.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+      padding: padding,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -316,12 +395,23 @@ class _AuthorAvatar extends StatelessWidget {
   }
 }
 
-/// サムネイル右下に縦に並ぶアクション。
-class _ActionRail extends StatelessWidget {
-  const _ActionRail({required this.project, required this.onOpenUrl});
+/// いいね数・共有・topaz.dev へのリンクを縦に並べたアクション列。
+///
+/// 狭い画面ではサムネイルの右下に重ね、広い画面ではステージの右隣に置く。
+class ProjectActionRail extends StatelessWidget {
+  const ProjectActionRail({
+    super.key,
+    required this.project,
+    required this.onOpenUrl,
+    this.overlay = true,
+  });
 
   final Project project;
   final ValueChanged<String> onOpenUrl;
+
+  /// サムネイルの上に重なるか。
+  /// 重ならないなら、読みやすくするための縁取りは要らない。
+  final bool overlay;
 
   @override
   Widget build(BuildContext context) {
@@ -335,15 +425,22 @@ class _ActionRail extends StatelessWidget {
         _RailButton(
           icon: Icons.favorite_border,
           label: _formatCount(project.likeCount),
+          overlay: overlay,
           onTap: () => showTopazOnly(context, 'いいね', openTopaz),
         ),
         _RailButton(
           icon: Icons.reply,
           flipHorizontally: true,
           label: '共有',
+          overlay: overlay,
           onTap: () => _showComingSoon(context, '共有'),
         ),
-        _RailButton(icon: Icons.open_in_new, label: 'topaz', onTap: openTopaz),
+        _RailButton(
+          icon: Icons.open_in_new,
+          label: 'topaz',
+          overlay: overlay,
+          onTap: openTopaz,
+        ),
       ],
     );
   }
@@ -384,23 +481,26 @@ class _RailButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    required this.overlay,
     this.flipHorizontally = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final bool overlay;
   final bool flipHorizontally;
 
   @override
   Widget build(BuildContext context) {
     // サムネイルの上にも余白の上にも乗るので、背景色の縁取りで浮かせる
     final colors = TopazColors.of(context);
+    final shadows = overlay ? colors.glowShadows : null;
     Widget iconWidget = Icon(
       icon,
       color: colors.onSurface,
       size: 28,
-      shadows: colors.glowShadows,
+      shadows: shadows,
     );
     if (flipHorizontally) {
       iconWidget = Transform.scale(scaleX: -1, child: iconWidget);
@@ -420,7 +520,7 @@ class _RailButton extends StatelessWidget {
                 color: colors.onSurface,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                shadows: colors.glowShadows,
+                shadows: shadows,
               ),
             ),
           ],

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../layout.dart';
 import '../models/feed_order.dart';
 import '../models/project.dart';
 import '../repositories/feed_repository.dart';
@@ -12,6 +13,7 @@ import '../theme.dart';
 import '../widgets/feed_seek_bar.dart';
 import '../widgets/feed_top_bar.dart';
 import '../widgets/project_card.dart';
+import '../widgets/wheel_pager.dart';
 
 /// YouTube Shorts風の縦スワイプフィード。
 class FeedPage extends StatefulWidget {
@@ -122,6 +124,9 @@ class _FeedPageState extends State<FeedPage> {
 
   final Set<String> _precached = {};
   Timer? _precacheTimer;
+
+  /// ホイールでのページ送り。ページをまたいで状態を持ちたいのでここに置く。
+  late final WheelPaging _wheelPaging = WheelPaging(onPage: _movePage);
 
   /// [_allProjects] か [_selectedTech] を変えたら呼ぶ。
   void _updateVisible() {
@@ -377,6 +382,66 @@ class _FeedPageState extends State<FeedPage> {
     _pageController.jumpToPage(index);
   }
 
+  /// [PageView] に並べる枚数。自動取得を止めたときの案内1枚を含む。
+  int get _itemCount => _visible.length + (_autoLoadStopped ? 1 : 0);
+
+  /// 現在地から [delta] 枚ぶん送る。端まで来ていたら何もしない。
+  ///
+  /// スワイプできない環境 (マウスやキーボード) からの操作をここに集める。
+  void _movePage(int delta) {
+    if (!_pageController.hasClients) return;
+    final current = _pageController.page?.round() ?? _currentIndex.value;
+    final target = current + delta;
+    if (target < 0 || target >= _itemCount) return;
+    _pageController.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// 次のページに送るキー。矢印のほかに、スクロール系のUIでよく使われる
+  /// PageDown と Vim風の J も受ける。
+  static final _nextKeys = {
+    LogicalKeyboardKey.arrowDown,
+    LogicalKeyboardKey.pageDown,
+    LogicalKeyboardKey.keyJ,
+  };
+
+  /// 前のページに戻すキー。
+  static final _previousKeys = {
+    LogicalKeyboardKey.arrowUp,
+    LogicalKeyboardKey.pageUp,
+    LogicalKeyboardKey.keyK,
+  };
+
+  /// キーボードでのページ送り。
+  ///
+  /// ボタンにフォーカスが移っていても、キーイベントは先祖の [Focus] まで
+  /// 上がってくるのでここで受け取れる。矢印キーを [KeyEventResult.handled]
+  /// にすることで、既定のフォーカス移動に持っていかれるのも防ぐ。
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (_nextKeys.contains(key)) {
+      _movePage(1);
+      return KeyEventResult.handled;
+    }
+    if (_previousKeys.contains(key)) {
+      _movePage(-1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.home) {
+      _seekTo(0);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.end) {
+      if (_itemCount > 0) _seekTo(_itemCount - 1);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   void _onTechSelected(String? tech) {
     setState(() {
       _selectedTech = tech;
@@ -408,38 +473,203 @@ class _FeedPageState extends State<FeedPage> {
   Widget build(BuildContext context) {
     final colors = TopazColors.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final wide = isWideLayout(context);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       // ステータスバーの文字色を背景と反対にする
       value: isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       child: Scaffold(
-        backgroundColor: colors.surface,
-        body: Column(
-          children: [
-            // 上部のセーフエリアは FeedTopBar が確保する
-            FeedTopBar(
-              techs: _techs,
-              selectedTech: _selectedTech,
-              onTechSelected: _onTechSelected,
-              order: _order,
-              onOrderSelected: _onOrderSelected,
-              showMockBadge: widget.usingMockData,
-            ),
-            Expanded(child: _buildBody()),
-            if (!_initialLoading && _error == null && _visible.isNotEmpty)
-              SafeArea(
-                top: false,
-                // ページ送りで作り直すのはこの部分だけにする
-                child: ValueListenableBuilder<int>(
-                  valueListenable: _currentIndex,
-                  builder: (context, index, _) => FeedSeekBar(
-                    itemCount: _visible.length,
-                    currentIndex: index.clamp(0, _visible.length - 1),
-                    onSeek: _seekTo,
-                  ),
-                ),
+        // 広い画面ではステージの外側を一段沈ませて、中央の1枚を浮かせる
+        backgroundColor: wide ? colors.canvas : colors.surface,
+        // キーボードでもページを送れるようにする (Web/デスクトップ向け)
+        body: Focus(
+          autofocus: true,
+          onKeyEvent: _onKey,
+          child: Column(
+            children: [
+              // 上部のセーフエリアは FeedTopBar が確保する
+              FeedTopBar(
+                techs: _techs,
+                selectedTech: _selectedTech,
+                onTechSelected: _onTechSelected,
+                order: _order,
+                onOrderSelected: _onOrderSelected,
+                showMockBadge: widget.usingMockData,
               ),
-          ],
+              Expanded(
+                child: wide ? _buildWide(colors, isDark) : _buildNarrow(),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  /// スマホ幅。フィードを画面いっぱいに広げ、シークバーを画面の下端に置く。
+  Widget _buildNarrow() {
+    return Column(
+      children: [
+        Expanded(child: _buildBody()),
+        if (_hasItems) SafeArea(top: false, child: _buildSeekBar()),
+      ],
+    );
+  }
+
+  /// デスクトップ幅。Shorts と同じ三分割で、
+  /// 左に作者情報、中央にサムネイル、右にアクション列とページ送りを置く。
+  ///
+  /// 画面いっぱいに広げると、横長のサムネイルが中央に取り残されたまま
+  /// アクション列だけが画面の右端まで離れてしまう。見るものを1本にまとめて、
+  /// 目線と操作を同じ場所に集める。
+  Widget _buildWide(TopazColors colors, bool isDark) {
+    final width = feedWidth(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(kStagePadding, 16, kStagePadding, 20),
+      child: Column(
+        children: [
+          Expanded(
+            child: Row(
+              // 左右のガターを同じ幅にすることで、ステージが画面の中央に来る。
+              // 伸び縮みするのは外側だけで、中央の幅は画面サイズだけで決まる。
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: _buildMeta()),
+                SizedBox(width: width, child: _buildStage(colors, isDark)),
+                Expanded(child: _buildRightGutter()),
+              ],
+            ),
+          ),
+          // シークバーはステージと同じ幅にする。ステージが画面の中央にあるので、
+          // ここで中央に置けば真下に並ぶ。
+          if (_hasItems)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: SizedBox(width: width, child: _buildSeekBar()),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 中央に置く1枚ぶんのフィード。角を丸めて1枚のカードに見せる。
+  Widget _buildStage(TopazColors colors, bool isDark) {
+    const radius = BorderRadius.all(Radius.circular(20));
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: radius,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      // 罫線は中身より前に描かないと、角の内側でサムネイルに隠れる
+      foregroundDecoration: BoxDecoration(
+        borderRadius: radius,
+        border: Border.all(color: colors.border),
+      ),
+      child: ClipRRect(borderRadius: radius, child: _buildBody()),
+    );
+  }
+
+  /// ステージの左に置く、作者・タイトル・技術タグ。
+  ///
+  /// サムネイルの上に重ねると肝心の画像が隠れるので、Shorts と同じく外に出し、
+  /// 下端をサムネイルに揃える。ガターは画面幅に応じて広がるが、離れすぎると
+  /// 読みづらいので [kMetaMaxWidth] で止めてステージ側に寄せる。
+  Widget _buildMeta() {
+    if (!_hasItems) return const SizedBox.shrink();
+    return ValueListenableBuilder<int>(
+      valueListenable: _currentIndex,
+      builder: (context, index, _) {
+        // 末尾の案内ページには出すものがない
+        if (index >= _visible.length) return const SizedBox.shrink();
+        return Align(
+          alignment: Alignment.bottomRight,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: kMetaMaxWidth),
+            child: ProjectInfo(
+              project: _visible[index],
+              onOpenUrl: _openUrl,
+              // 右の余白でステージとの間を空ける
+              padding: const EdgeInsets.only(right: kStageGap, bottom: 14),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// ステージの右。すぐ隣にアクション列、画面の右端にページ送りのボタン。
+  ///
+  /// ページ送りをアクション列の上に積むと、いいねを押すつもりで次のカードへ
+  /// 送ってしまう。送る操作はカードへの操作から離して端に置く。
+  Widget _buildRightGutter() {
+    if (!_hasItems) return const SizedBox.shrink();
+    return ValueListenableBuilder<int>(
+      valueListenable: _currentIndex,
+      builder: (context, index, _) {
+        // 末尾の案内ページにはアクションの対象がない
+        final project = index < _visible.length ? _visible[index] : null;
+        return Row(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: kStageGap),
+              child: SizedBox(
+                width: kRailWidth,
+                child: project == null
+                    ? null
+                    : Align(
+                        // サムネイルの下端に揃える
+                        alignment: Alignment.bottomCenter,
+                        child: ProjectActionRail(
+                          project: project,
+                          onOpenUrl: _openUrl,
+                          // サムネイルの外に出るので、読みやすくする縁取りは要らない
+                          overlay: false,
+                        ),
+                      ),
+              ),
+            ),
+            const Spacer(),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _NavButton(
+                  icon: Icons.keyboard_arrow_up,
+                  tooltip: '前へ (↑)',
+                  onTap: index > 0 ? () => _movePage(-1) : null,
+                ),
+                const SizedBox(height: 12),
+                _NavButton(
+                  icon: Icons.keyboard_arrow_down,
+                  tooltip: '次へ (↓)',
+                  onTap: index < _itemCount - 1 ? () => _movePage(1) : null,
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// フィードに出せるカードがあるか。
+  /// 読み込み中やエラー中は、シークバーもページ送りのボタンも出さない。
+  bool get _hasItems =>
+      !_initialLoading && _error == null && _visible.isNotEmpty;
+
+  Widget _buildSeekBar() {
+    // ページ送りで作り直すのはこの部分だけにする
+    return ValueListenableBuilder<int>(
+      valueListenable: _currentIndex,
+      builder: (context, index, _) => FeedSeekBar(
+        itemCount: _visible.length,
+        currentIndex: index.clamp(0, _visible.length - 1),
+        onSeek: _seekTo,
       ),
     );
   }
@@ -458,24 +688,74 @@ class _FeedPageState extends State<FeedPage> {
         child: Text('プロジェクトがありません', style: TextStyle(color: colors.muted)),
       );
     }
-    // 自動取得を止めたことがユーザーに伝わるよう、末尾に1枚だけ差し込む
-    final tail = _autoLoadStopped ? 1 : 0;
+    final wide = isWideLayout(context);
     return PageView.builder(
       controller: _pageController,
       scrollDirection: Axis.vertical,
       allowImplicitScrolling: true,
-      itemCount: projects.length + tail,
+      // 自動取得を止めたことが伝わるよう、末尾に案内を1枚だけ差し込む
+      itemCount: _itemCount,
       onPageChanged: _onPageChanged,
       itemBuilder: (context, index) {
-        if (index >= projects.length) {
-          return _NoMoreView(
-            loading: _manualLoading,
-            onLoadMore: _loadMoreManually,
-          );
-        }
-        final project = projects[index];
-        return ProjectCard(project: project, onOpenUrl: _openUrl);
+        // ホイールは PageView より内側で受け取らないと Scrollable に取られる
+        return WheelPager(
+          paging: _wheelPaging,
+          child: index >= projects.length
+              ? _NoMoreView(
+                  loading: _manualLoading,
+                  onLoadMore: _loadMoreManually,
+                )
+              : ProjectCard(
+                  project: projects[index],
+                  onOpenUrl: _openUrl,
+                  // 広い画面では作者情報もアクション列もステージの外に出す
+                  showChrome: !wide,
+                ),
+        );
       },
+    );
+  }
+}
+
+/// 画面の右端に置く、前後のページへ送る丸ボタン。
+class _NavButton extends StatelessWidget {
+  const _NavButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+
+  /// null なら端まで来ているので押せない。
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = TopazColors.of(context);
+    final enabled = onTap != null;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: colors.cyanSurface.withValues(alpha: enabled ? 1 : 0.4),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(
+              icon,
+              size: 26,
+              color: enabled
+                  ? colors.deep
+                  : colors.muted.withValues(alpha: 0.5),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
