@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../layout.dart';
 import '../models/feed_order.dart';
 import '../theme.dart';
 import 'dopaz_logo.dart';
@@ -39,52 +40,59 @@ class FeedTopBar extends StatelessWidget {
       color: colors.surface,
       child: SafeArea(
         bottom: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-              child: Row(
-                children: [
-                  const DopazLogo(),
-                  if (showMockBadge) ...[
-                    const SizedBox(width: 8),
-                    const _MockBadge(),
-                  ],
-                  const Spacer(),
-                  _OrderToggle(order: order, onSelected: onOrderSelected),
-                ],
-              ),
+        // 横に広い画面でロゴとトグルが両端まで離れてしまわないよう幅を止める。
+        // スマホ幅では上限に当たらないので、見た目は変わらない。
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: kHeaderMaxWidth),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                  child: Row(
+                    children: [
+                      const DopazLogo(),
+                      if (showMockBadge) ...[
+                        const SizedBox(width: 8),
+                        const _MockBadge(),
+                      ],
+                      const Spacer(),
+                      _OrderToggle(order: order, onSelected: onOrderSelected),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 34,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: techs.length + 1,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      if (index == 0) {
+                        return _FilterChip(
+                          label: 'すべて',
+                          selected: selectedTech == null,
+                          onTap: () => onTechSelected(null),
+                        );
+                      }
+                      final tech = techs[index - 1];
+                      return _FilterChip(
+                        label: tech,
+                        selected: selectedTech == tech,
+                        onTap: () => onTechSelected(tech),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Divider(height: 1, thickness: 1, color: colors.border),
+              ],
             ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 34,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: techs.length + 1,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  if (index == 0) {
-                    return _FilterChip(
-                      label: 'すべて',
-                      selected: selectedTech == null,
-                      onTap: () => onTechSelected(null),
-                    );
-                  }
-                  final tech = techs[index - 1];
-                  return _FilterChip(
-                    label: tech,
-                    selected: selectedTech == tech,
-                    onTap: () => onTechSelected(tech),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 10),
-            Divider(height: 1, thickness: 1, color: colors.border),
-          ],
+          ),
         ),
       ),
     );

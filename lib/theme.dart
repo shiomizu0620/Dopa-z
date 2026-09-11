@@ -9,6 +9,7 @@ class TopazColors {
     required this.cyanSurface,
     required this.deep,
     required this.surface,
+    required this.canvas,
     required this.onSurface,
     required this.muted,
     required this.border,
@@ -30,6 +31,10 @@ class TopazColors {
   /// 背景。
   final Color surface;
 
+  /// 広い画面でステージの外側に敷く色。
+  /// [surface] と差をつけることで、中央のステージが1枚のカードとして浮く。
+  final Color canvas;
+
   /// 本文の文字色。
   final Color onSurface;
 
@@ -49,6 +54,7 @@ class TopazColors {
     cyanSurface: Color(0xFFE3F7FB),
     deep: Color(0xFF17434F),
     surface: Colors.white,
+    canvas: Color(0xFFEDF2F4),
     onSurface: Color(0xFF11181C),
     muted: Color(0xFF5C6B73),
     border: Color(0xFFE3E8EA),
@@ -65,6 +71,7 @@ class TopazColors {
     cyanSurface: Color(0xFF12333B),
     deep: Color(0xFFDFF6FA),
     surface: Color(0xFF0E1417),
+    canvas: Color(0xFF05090B),
     onSurface: Color(0xFFE7EEF0),
     muted: Color(0xFF93A5AC),
     border: Color(0xFF27343A),

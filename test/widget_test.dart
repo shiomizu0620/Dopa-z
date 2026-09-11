@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:dopaz/layout.dart';
 import 'package:dopaz/models/project.dart';
 import 'package:dopaz/pages/feed_page.dart';
 import 'package:dopaz/repositories/feed_repository.dart';
@@ -7,7 +8,10 @@ import 'package:dopaz/theme.dart';
 import 'package:dopaz/widgets/dopaz_logo.dart';
 import 'package:dopaz/widgets/feed_seek_bar.dart';
 import 'package:dopaz/widgets/feed_top_bar.dart';
+import 'package:dopaz/widgets/project_card.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 実APIと同じ形のプロジェクト1件分のJSON。
@@ -168,17 +172,33 @@ _FakeFeed _sparseTagFeed({int lastPage = 10}) {
   ]);
 }
 
+/// スマホ相当 (オーバーフロー検出のため実機に近い大きさにする)。
+const _phone = Size(390, 844);
+
+/// デスクトップのブラウザ相当。
+const _desktop = Size(1440, 900);
+
+/// テストの画面サイズを [size] にする。
+///
+/// `setSurfaceSize` はレイアウトに使う大きさしか変えず、MediaQuery には
+/// 既定の 800x600 が残る。画面幅で表示を出し分けるようになったので、
+/// 両方が同じ大きさを見るように view ごと差し替える。
+void _useScreen(WidgetTester tester, Size size) {
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = size;
+  addTearDown(tester.view.reset);
+}
+
 void main() {
-  /// スマホ相当のサイズで描画する(オーバーフロー検出のため)。
   /// 並び順を検証したいので、既定では順番が変わらない乱数を使う。
   Future<void> pumpFeed(
     WidgetTester tester,
     ProjectFeed feed, {
     Random? random,
     Brightness brightness = Brightness.light,
+    Size size = _phone,
   }) async {
-    await tester.binding.setSurfaceSize(const Size(390, 844));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    _useScreen(tester, size);
     await tester.pumpWidget(
       MaterialApp(
         theme: TopazColors.light.toThemeData(Brightness.light),
@@ -375,6 +395,141 @@ void main() {
     // 背景がダークのパレットになっている
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
     expect(scaffold.backgroundColor, TopazColors.dark.surface);
+  });
+
+  group('デスクトップ幅', () {
+    /// ホイールを1ノッチぶん回す。
+    ///
+    /// 慣性で流れてくる分と区別するために時刻を見ているので、
+    /// 2回目以降は [at] をずらす。
+    Future<void> scroll(
+      WidgetTester tester,
+      double dy, {
+      Duration at = Duration.zero,
+    }) async {
+      final pointer = TestPointer(1, PointerDeviceKind.mouse);
+      final center = tester.getCenter(find.byType(PageView));
+      await tester.sendEventToBinding(pointer.hover(center));
+      await tester.sendEventToBinding(
+        pointer.scroll(Offset(0, dy), timeStamp: at),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('フィードは中央に寄り、アクション列はその外に出る', (WidgetTester tester) async {
+      await pumpFeed(tester, _FakeFeed([_page1()]), size: _desktop);
+      await tester.pumpAndSettle();
+
+      final stage = tester.getRect(find.byType(PageView));
+      // 画面いっぱいには広げず、中央に1本だけ置く
+      expect(stage.width, lessThan(_desktop.width / 2));
+      expect(stage.center.dx, closeTo(_desktop.width / 2, 1));
+
+      // アクション列はカードに重ならず、右隣に1つだけ出る
+      final rail = tester.getRect(find.byType(ProjectActionRail));
+      expect(find.byType(ProjectActionRail), findsOneWidget);
+      expect(rail.left, greaterThanOrEqualTo(stage.right));
+
+      // 外側は surface と別の色にして、中央のカードを浮かせる
+      final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+      expect(scaffold.backgroundColor, TopazColors.light.canvas);
+    });
+
+    testWidgets('作者情報は左、ページ送りは画面の右端に置く', (WidgetTester tester) async {
+      await pumpFeed(tester, _FakeFeed([_page1()]), size: _desktop);
+      await tester.pumpAndSettle();
+
+      final stage = tester.getRect(find.byType(PageView));
+
+      // 作者情報はカードの中ではなく、左隣に1組だけ出る
+      expect(find.byType(ProjectInfo), findsOneWidget);
+      final meta = tester.getRect(find.byType(ProjectInfo));
+      expect(meta.right, lessThanOrEqualTo(stage.left));
+      // 下端はサムネイルに揃える
+      expect(meta.bottom, closeTo(stage.bottom, 1));
+
+      // ページ送りはアクション列と離して画面の右端へ。
+      // いいねを押すつもりで次のカードに送ってしまわないようにする。
+      final rail = tester.getRect(find.byType(ProjectActionRail));
+      final next = tester.getRect(find.byTooltip('次へ (↓)'));
+      expect(next.left, greaterThan(rail.right));
+      expect(next.right, closeTo(_desktop.width - kStagePadding, 1));
+
+      // 上下2つはステージの高さの中央に並べる
+      final previous = tester.getRect(find.byTooltip('前へ (↑)'));
+      expect((previous.top + next.bottom) / 2, closeTo(stage.center.dy, 1));
+    });
+
+    testWidgets('ページを送ると左の作者情報も入れ替わる', (WidgetTester tester) async {
+      await pumpFeed(tester, _FakeFeed([_page1()]), size: _desktop);
+      await tester.pumpAndSettle();
+
+      expect(find.text('ドーパミン駆動のプロジェクト発見アプリ'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('次へ (↓)'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('共同編集ホワイトボード'), findsOneWidget);
+      expect(find.text('ドーパミン駆動のプロジェクト発見アプリ'), findsNothing);
+    });
+
+    testWidgets('ホイールを回すと1ページだけ送る', (WidgetTester tester) async {
+      await pumpFeed(tester, _FakeFeed([_page1()]), size: _desktop);
+      await tester.pumpAndSettle();
+
+      await scroll(tester, 100);
+
+      // 1ノッチで1枚。行き過ぎて2枚送ってしまわない
+      expect(find.text('@hackathon_taro'), findsOneWidget);
+      expect(find.text('@akubi'), findsNothing);
+    });
+
+    testWidgets('ホイールの慣性で何ページも飛ばさない', (WidgetTester tester) async {
+      await pumpFeed(tester, _FakeFeed([_page1()]), size: _desktop);
+      await tester.pumpAndSettle();
+
+      // 指を離したあとに続けて届く分は、まとめて1ページぶんとして扱う
+      await scroll(tester, 100);
+      await scroll(tester, 100, at: const Duration(milliseconds: 30));
+      await scroll(tester, 100, at: const Duration(milliseconds: 60));
+
+      expect(find.text('@hackathon_taro'), findsOneWidget);
+    });
+
+    testWidgets('矢印キーで前後に送れる', (WidgetTester tester) async {
+      await pumpFeed(tester, _FakeFeed([_page1()]), size: _desktop);
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+      expect(find.text('@hackathon_taro'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pumpAndSettle();
+      expect(find.text('@akubi'), findsOneWidget);
+    });
+
+    testWidgets('先頭では前へのボタンを押せない', (WidgetTester tester) async {
+      await pumpFeed(tester, _FakeFeed([_page1()]), size: _desktop);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('次へ (↓)'));
+      await tester.pumpAndSettle();
+      expect(find.text('@hackathon_taro'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('前へ (↑)'));
+      await tester.pumpAndSettle();
+      expect(find.text('@akubi'), findsOneWidget);
+
+      // 先頭に戻ったら、前へは押せなくなる
+      final up = tester.widget<InkWell>(
+        find.descendant(
+          of: find.byTooltip('前へ (↑)'),
+          matching: find.byType(InkWell),
+        ),
+      );
+      expect(up.onTap, isNull);
+    });
   });
 
   testWidgets('並び順のトグルは現在の選択を示す', (WidgetTester tester) async {
